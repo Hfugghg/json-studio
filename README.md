@@ -83,7 +83,6 @@ npm start
 │   ├── App.css        # 组件样式
 │   └── index.css      # 全局样式与主题变量
 ├── server.mjs         # Express 文件服务，读写 json-files/
-├── server.js          # 同上的旧版实现（保留）
 ├── scripts/
 │   └── postbuild-pages.mjs   # Pages 构建后处理
 ├── public/            # 静态资源

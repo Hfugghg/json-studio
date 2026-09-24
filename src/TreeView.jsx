@@ -1,4 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useContext, createContext } from 'react';
+
+// 行号分配 context — 避免在渲染过程中 mutation ref（H10）
+// 每次 TreeView 渲染时创建新的分配函数，子节点通过 context 获取行号
+const LineCounterContext = createContext(() => 0);
 
 // ========== 工具函数 ==========
 function getValueType(val) {
@@ -33,6 +37,33 @@ function getDepthColor(depth) {
 function getDepthBgStyle(depth) {
   const color = RAINBOW[depth % RAINBOW.length];
   return { borderLeft: `3px solid ${color}66`, background: `${color}18` };
+}
+
+// 检查节点的值或任意后代是否匹配搜索词（用于搜索过滤 C2）
+// 键名匹配在 TreeNode 中单独处理，此处只检查值与后代
+function valueMatchesSearch(value, type, searchTerm, hiddenKeys) {
+  if (!searchTerm) return true;
+  const term = searchTerm.toLowerCase();
+
+  // 叶子节点：直接检查值
+  if (type !== 'object' && type !== 'array') {
+    return String(value).toLowerCase().includes(term);
+  }
+
+  // 数组：递归检查元素
+  if (type === 'array') {
+    return value.some((item) => valueMatchesSearch(item, getValueType(item), searchTerm, hiddenKeys));
+  }
+
+  // 对象：递归检查属性值
+  if (type === 'object') {
+    return Object.entries(value).some(([k, v]) => {
+      if (hiddenKeys.includes(k)) return false;
+      return valueMatchesSearch(v, getValueType(v), searchTerm, hiddenKeys);
+    });
+  }
+
+  return false;
 }
 
 // ========== 值编辑器 ==========
@@ -135,7 +166,7 @@ function HideConfirm({ nodeKey, onConfirm, onCancel }) {
 }
 
 // ========== 单个树节点 ==========
-function TreeNode({ nodeKey, value, depth, path, onDelete, onEdit, onAdd, onRenameKey, hiddenKeys, onHideKey, lineCounterRef }) {
+function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, onAdd, onRenameKey, hiddenKeys, onHideKey }) {
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editingKey, setEditingKey] = useState(false);
@@ -151,8 +182,19 @@ function TreeNode({ nodeKey, value, depth, path, onDelete, onEdit, onAdd, onRena
 
   if (isHidden) return null;
 
-  // 分配行号（仅可见节点占行号，保证和代码行对应）
-  const currentLine = lineCounterRef.current++;
+  // 搜索过滤：节点键名、值及后代均不匹配时隐藏（C2）
+  if (searchTerm) {
+    const term = searchTerm.toLowerCase();
+    // 键名匹配（跳过根节点和数组索引）
+    const keyMatches = nodeKey !== 'root' && !isArrayItem && String(nodeKey).toLowerCase().includes(term);
+    // 值或后代匹配
+    const valueMatches = valueMatchesSearch(value, type, searchTerm, hiddenKeys);
+    if (!keyMatches && !valueMatches) return null;
+  }
+
+  // 分配行号（通过 context 获取分配函数，避免渲染中 ref mutation）（H10）
+  const allocateLine = useContext(LineCounterContext);
+  const currentLine = allocateLine();
 
   const toggle = () => { if (isExpandable) setCollapsed(c => !c); };
 
@@ -245,15 +287,15 @@ function TreeNode({ nodeKey, value, depth, path, onDelete, onEdit, onAdd, onRena
           {type === 'array'
             ? value.map((item, i) => (
                 <TreeNode key={`${i}-${childCount}`} nodeKey={i} value={item} depth={depth + 1}
-                  path={[...path, i]} onDelete={onDelete} onEdit={onEdit} onAdd={onAdd}
-                  onRenameKey={onRenameKey} hiddenKeys={hiddenKeys} onHideKey={onHideKey}
-                  lineCounterRef={lineCounterRef} />
+                  path={[...path, i]} searchTerm={searchTerm}
+                  onDelete={onDelete} onEdit={onEdit} onAdd={onAdd}
+                  onRenameKey={onRenameKey} hiddenKeys={hiddenKeys} onHideKey={onHideKey} />
               ))
             : Object.entries(value).map(([k, v]) => (
                 <TreeNode key={`${k}-${childCount}`} nodeKey={k} value={v} depth={depth + 1}
-                  path={[...path, k]} onDelete={onDelete} onEdit={onEdit} onAdd={onAdd}
-                  onRenameKey={onRenameKey} hiddenKeys={hiddenKeys} onHideKey={onHideKey}
-                  lineCounterRef={lineCounterRef} />
+                  path={[...path, k]} searchTerm={searchTerm}
+                  onDelete={onDelete} onEdit={onEdit} onAdd={onAdd}
+                  onRenameKey={onRenameKey} hiddenKeys={hiddenKeys} onHideKey={onHideKey} />
               ))
           }
           {childCount === 0 && (
@@ -292,12 +334,11 @@ function getSummary(value, type) {
 }
 
 // ========== 主组件 ==========
-export default function TreeView({ data, error, hiddenKeys, onDelete, onEdit, onAdd, onRenameKey, onHideKey }) {
-  // 行号计数器（用 ref 在渲染过程中递增）
-  const lineCounterRef = useRef(1);
-
-  // 每次渲染前重置计数器
-  lineCounterRef.current = 1;
+export default function TreeView({ data, error, hiddenKeys, searchTerm, onDelete, onEdit, onAdd, onRenameKey, onHideKey }) {
+  // 行号计数器：每次渲染创建新的分配函数，通过 context 提供给子节点（H10）
+  // 使用局部变量而非 ref，确保每次渲染独立计数，不跨渲染残留
+  let lineCounter = 1;
+  const allocateLine = () => lineCounter++;
 
   if (error) {
     return (
@@ -315,23 +356,14 @@ export default function TreeView({ data, error, hiddenKeys, onDelete, onEdit, on
 
   const type = getValueType(data);
 
-  if (type === 'object' || type === 'array') {
-    return (
+  return (
+    <LineCounterContext.Provider value={allocateLine}>
       <div className="tree-container">
         <TreeNode nodeKey="root" value={data} depth={0} path={[]}
+          searchTerm={searchTerm || ''}
           onDelete={onDelete} onEdit={onEdit} onAdd={onAdd} onRenameKey={onRenameKey}
-          hiddenKeys={hiddenKeys || []} onHideKey={onHideKey}
-          lineCounterRef={lineCounterRef} />
+          hiddenKeys={hiddenKeys || []} onHideKey={onHideKey} />
       </div>
-    );
-  }
-
-  return (
-    <div className="tree-container">
-      <TreeNode nodeKey="root" value={data} depth={0} path={[]}
-        onDelete={onDelete} onEdit={onEdit} onAdd={onAdd} onRenameKey={onRenameKey}
-        hiddenKeys={hiddenKeys || []} onHideKey={onHideKey}
-        lineCounterRef={lineCounterRef} />
-    </div>
+    </LineCounterContext.Provider>
   );
 }

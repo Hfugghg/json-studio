@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import TreeView from './TreeView';
 import { listFiles, readFile, saveFile, createFile, deleteFile, detectMode } from './storage';
@@ -41,10 +41,14 @@ function App() {
     }
   });
 
+  // 缓存代码行数组，避免每次渲染重复 split（H11）
+  const codeLines = useMemo(() => code.split('\n'), [code]);
+
   // 持久化隐藏键到 localStorage
   useEffect(() => {
     localStorage.setItem('json-editor-hidden-keys', JSON.stringify(hiddenKeys));
   }, [hiddenKeys]);
+
   const [showHiddenPanel, setShowHiddenPanel] = useState(false);
   const hiddenToggleRef = useRef(null);
   const hiddenPanelRef = useRef(null);
@@ -70,7 +74,6 @@ function App() {
   const [view, setView] = useState('split');
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
-  const treeVersionRef = useRef(0); // 用于强制树形视图刷新
   const [toolbarHidden, setToolbarHidden] = useState(false);
   const treeViewportRef = useRef(null);
 
@@ -149,13 +152,17 @@ function App() {
     parseTimerRef.current = setTimeout(() => parseJSON(text), 300);
   }, [parseJSON]);
 
+  // 卸载时清理解析定时器（M4）
+  useEffect(() => () => clearTimeout(parseTimerRef.current), []);
+
   // ========== 数据操作：修改后同步到代码 ==========
   const syncToCode = useCallback((newData) => {
+    // 先清除定时器，避免竞态：防抖到期后用旧文本覆盖 parsedData（H8）
+    clearTimeout(parseTimerRef.current);
     const newCode = JSON.stringify(newData, null, 2);
     setCode(newCode);
     setError(null);
     setParsedData(newData);
-    treeVersionRef.current++;
   }, []);
 
   // 根据路径获取父节点和键
@@ -227,6 +234,11 @@ function App() {
     const newData = deepCopy(parsedData);
     const { parent, key } = getParentAndKey(newData, path);
     if (typeof parent === 'object' && !Array.isArray(parent)) {
+      // 防止重命名为已存在的键导致静默覆盖（H7）
+      if (parent.hasOwnProperty(newKey) && newKey !== key) {
+        setStatus(`✕ 键名 "${newKey}" 已存在`);
+        return;
+      }
       const val = parent[key];
       delete parent[key];
       parent[newKey] = val;
@@ -237,6 +249,8 @@ function App() {
 
   // ========== 工具栏操作 ==========
   const handleFormat = useCallback(() => {
+    // 清除防抖定时器，避免旧文本覆盖结果（H8）
+    clearTimeout(parseTimerRef.current);
     try {
       const parsed = JSON.parse(code);
       const formatted = JSON.stringify(parsed, null, 2);
@@ -250,6 +264,8 @@ function App() {
   }, [code]);
 
   const handleMinify = useCallback(() => {
+    // 清除防抖定时器，避免旧文本覆盖结果（H8）
+    clearTimeout(parseTimerRef.current);
     try {
       const parsed = JSON.parse(code);
       const minified = JSON.stringify(parsed);
@@ -340,6 +356,11 @@ function App() {
       if (!silent) setFileLoading(false);
     }
   }, []);
+
+  // 启动时解析初始 JSON，树形视图立即显示（无需等待用户输入）
+  useEffect(() => {
+    parseJSON(code);
+  }, []); // 仅挂载时执行一次
 
   // 启动时加载文件列表
   useEffect(() => {
@@ -438,27 +459,56 @@ function App() {
     }
   }, []);
 
-  // 监听代码区滚动（用 scrollend 避免布局变化引发的循环触发）
+  // 检测 scrollend 事件支持性（Safari < 16 不支持）
+  const supportsScrollEnd = typeof window !== 'undefined' && 'onscrollend' in window;
+
+  // 监听代码区滚动（用 scrollend 避免布局变化引发的循环触发；不支持时回退到 scroll + 节流）（M5）
   useEffect(() => {
     const textarea = textareaRef.current;
     const treeViewport = treeViewportRef.current;
-    if (textarea) textarea.addEventListener('scrollend', handleScroll, { passive: true });
-    if (treeViewport) treeViewport.addEventListener('scrollend', handleScroll, { passive: true });
-    return () => {
-      if (textarea) textarea.removeEventListener('scrollend', handleScroll);
-      if (treeViewport) treeViewport.removeEventListener('scrollend', handleScroll);
+    // 用于 scroll 回退的节流定时器
+    const scrollTimers = new Map();
+    const onScrollFallback = (e) => {
+      const el = e.target;
+      if (scrollTimers.has(el)) clearTimeout(scrollTimers.get(el));
+      scrollTimers.set(el, setTimeout(() => handleScroll(e), 100));
     };
-  }, [handleScroll]);
+    if (supportsScrollEnd) {
+      if (textarea) textarea.addEventListener('scrollend', handleScroll, { passive: true });
+      if (treeViewport) treeViewport.addEventListener('scrollend', handleScroll, { passive: true });
+    } else {
+      if (textarea) textarea.addEventListener('scroll', onScrollFallback, { passive: true });
+      if (treeViewport) treeViewport.addEventListener('scroll', onScrollFallback, { passive: true });
+    }
+    return () => {
+      if (supportsScrollEnd) {
+        if (textarea) textarea.removeEventListener('scrollend', handleScroll);
+        if (treeViewport) treeViewport.removeEventListener('scrollend', handleScroll);
+      } else {
+        if (textarea) textarea.removeEventListener('scroll', onScrollFallback);
+        if (treeViewport) treeViewport.removeEventListener('scroll', onScrollFallback);
+      }
+      scrollTimers.forEach((t) => clearTimeout(t));
+      scrollTimers.clear();
+    };
+  }, [handleScroll, supportsScrollEnd]);
 
   // 行号与代码同步滚动
   const lineNumbersRef = useRef(null);
   const isScrollingRef = useRef(false); // 防止循环触发
-  const LINE_HEIGHT = 21.45; // 13px * 1.65 line-height，代码区行高
+
+  // 动态获取代码区行高（避免硬编码与 CSS 不一致）（M1）
+  const getLineHeight = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return 21.45; // 回退默认值：13px * 1.65
+    const lh = parseFloat(window.getComputedStyle(ta).lineHeight);
+    return isNaN(lh) || lh === 0 ? 21.45 : lh;
+  }, []);
 
   // 获取代码区第一个可见行号
   const getFirstVisibleLine = useCallback((textarea) => {
-    return Math.floor(textarea.scrollTop / LINE_HEIGHT) + 1;
-  }, []);
+    return Math.floor(textarea.scrollTop / getLineHeight()) + 1;
+  }, [getLineHeight]);
 
   // 滚动树形视图到指定行对应的节点
   const scrollTreeToLine = useCallback((line) => {
@@ -513,13 +563,13 @@ function App() {
         }
       }
       // 滚动代码区到对应行
-      textarea.scrollTop = (firstVisibleLine - 1) * LINE_HEIGHT;
+      textarea.scrollTop = (firstVisibleLine - 1) * getLineHeight();
       if (lineNumbersRef.current) {
         lineNumbersRef.current.scrollTop = textarea.scrollTop;
       }
       requestAnimationFrame(() => { isScrollingRef.current = false; });
     }
-  }, []);
+  }, [getLineHeight]);
 
   // ========== 代码编辑 ==========
   const handleCodeChange = useCallback((e) => {
@@ -689,13 +739,13 @@ function App() {
                 {errorLine ? (
                   <span className="panel-error-info">✕ 第 {errorLine} 行{errorDetail ? `: ${errorDetail.reason}` : ''}</span>
                 ) : (
-                  `${code.length} 字符 · ${code.split('\n').length} 行`
+                  `${code.length} 字符 · ${codeLines.length} 行`
                 )}
               </span>
             </div>
             <div className="editor-wrapper">
               <div className="line-numbers" ref={lineNumbersRef}>
-                {code.split('\n').map((_, i) => (
+                {codeLines.map((_, i) => (
                   <div
                     key={i}
                     className={`line-number ${errorLine === i + 1 ? 'line-number-error' : ''}`}
@@ -734,10 +784,10 @@ function App() {
             </div>
             <div className="tree-viewport" ref={treeViewportRef} onScroll={handleTreeScroll}>
               <TreeView
-                key={treeVersionRef.current}
                 data={parsedData}
                 error={error}
                 hiddenKeys={hiddenKeys}
+                searchTerm={searchTerm}
                 onDelete={handleTreeDelete}
                 onEdit={handleTreeEdit}
                 onAdd={handleTreeAdd}
