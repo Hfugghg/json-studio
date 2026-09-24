@@ -104,6 +104,55 @@ function App() {
     }
   }, []);
 
+  // 扫描文本，找到最深层未闭合的 { 或 [ 及其行号列号
+  // 用于"Unexpected end of JSON"时定位真正的错误位置
+  const findUnclosedBracket = (text) => {
+    const stack = [];
+    let line = 1;
+    let col = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      col++;
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === '\\') {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+      } else {
+        if (ch === '"') {
+          inString = true;
+        } else if (ch === '{' || ch === '[') {
+          stack.push({ char: ch, line, col });
+        } else if (ch === '}' || ch === ']') {
+          // 仅在匹配时才弹出（} 匹配 {，] 匹配 [），否则保留不闭合的括号
+          if (stack.length > 0) {
+            const top = stack[stack.length - 1];
+            if ((ch === '}' && top.char === '{') || (ch === ']' && top.char === '[')) {
+              stack.pop();
+            }
+          }
+        } else if (ch === '\n') {
+          line++;
+          col = 0;
+        }
+      }
+    }
+
+    // 返回最深层未闭合的括号（最具体的错误位置）
+    if (stack.length > 0) {
+      const unclosed = stack[stack.length - 1];
+      return { line: unclosed.line, col: unclosed.col, char: unclosed.char };
+    }
+    return null;
+  };
+
   // 解析 JSON 错误位置
   const parseErrorPosition = useCallback((err, text) => {
     const message = err.message || '';
@@ -111,34 +160,85 @@ function App() {
     let column = 1;
     let reason = message;
 
-    // 尝试从错误信息中提取 position
-    const posMatch = message.match(/position (\d+)/i);
-    const atMatch = message.match(/at position (\d+)/i);
-    const pos = posMatch ? parseInt(posMatch[1]) : (atMatch ? parseInt(atMatch[1]) : null);
-
-    if (pos !== null && !isNaN(pos)) {
-      // 将 position 转换为行号列号
-      const lines = text.substring(0, pos).split('\n');
-      line = lines.length;
-      column = lines[lines.length - 1].length + 1;
+    // 优先从 V8 新格式错误消息中提取 line/column："(line X column Y)"
+    const lineColMatch = message.match(/\(line (\d+) column (\d+)\)/);
+    if (lineColMatch) {
+      line = parseInt(lineColMatch[1]);
+      column = parseInt(lineColMatch[2]);
     } else {
-      // 尝试直接匹配 "line X column Y"
-      const lineColMatch = message.match(/line (\d+) column (\d+)/i);
-      if (lineColMatch) {
-        line = parseInt(lineColMatch[1]);
-        column = parseInt(lineColMatch[2]);
+      // 回退：从 position 计算
+      const posMatch = message.match(/position (\d+)/i);
+      const pos = posMatch ? parseInt(posMatch[1]) : null;
+      if (pos !== null && !isNaN(pos) && pos < text.length) {
+        const lines = text.substring(0, pos).split('\n');
+        line = lines.length;
+        column = lines[lines.length - 1].length + 1;
       }
     }
 
-    // 提取更友好的错误原因
-    if (message.includes('Unexpected end')) {
-      reason = 'JSON 不完整（可能缺少闭合括号或引号）';
+    // 判断是否到达输入末尾（position >= 文本长度 或 Unexpected end）
+    const posMatch = message.match(/position (\d+)/);
+    const pos = posMatch ? parseInt(posMatch[1]) : null;
+    const isEndOfInput = message.includes('Unexpected end') ||
+      (pos !== null && pos >= text.length);
+
+    if (isEndOfInput) {
+      // 文件意外结束 → 扫描未闭合的括号
+      const unclosed = findUnclosedBracket(text);
+      if (unclosed) {
+        line = unclosed.line;
+        column = unclosed.col;
+        const closeChar = unclosed.char === '{' ? '}' : ']';
+        reason = `缺少闭合符号 "${closeChar}" — 此行开启了 ${unclosed.char} 但未闭合`;
+      } else {
+        reason = 'JSON 不完整（可能缺少闭合括号或引号）';
+      }
+    } else if (message.startsWith('Expected')) {
+      // V8 新格式："Expected ',' or '}' after property value at position N (line X column Y)"
+      // 报错位置在下一个元素开头，真正错误在上一行末尾（漏了逗号）
+      const charAtPos = pos !== null && pos < text.length ? text[pos] : null;
+
+      if (charAtPos === '"' || /[0-9tfn]/.test(charAtPos || '')) {
+        // 下一个 token 是字符串/数字/布尔/null → 缺少逗号
+        if (line > 1) {
+          const prevLineEnd = text.lastIndexOf('\n', (pos || 0) - 1);
+          const prevLineStart = prevLineEnd > 0 ? text.lastIndexOf('\n', prevLineEnd - 1) + 1 : 0;
+          const prevLine = text.substring(prevLineStart, prevLineEnd).trim();
+          if (prevLine && !prevLine.endsWith(',') && !prevLine.endsWith('{') && !prevLine.endsWith('[')) {
+            const prevLines = text.substring(0, prevLineStart).split('\n');
+            line = prevLines.length;
+            column = prevLines[prevLines.length - 1].length + 1;
+            reason = '缺少逗号 — 此行末尾可能漏了逗号';
+          } else {
+            reason = '缺少逗号 — 元素之间可能漏了逗号';
+          }
+        } else {
+          reason = '缺少逗号 — 元素之间可能漏了逗号';
+        }
+      } else if (charAtPos === '}' || charAtPos === ']') {
+        // 解析器遇到 } 或 ] 但期望逗号 → 内层结构可能未闭合
+        const unclosed = findUnclosedBracket(text);
+        if (unclosed) {
+          line = unclosed.line;
+          column = unclosed.col;
+          const closeChar = unclosed.char === '{' ? '}' : ']';
+          reason = `缺少闭合符号 "${closeChar}" — 此行开启了 ${unclosed.char} 但未闭合`;
+        } else {
+          reason = '缺少逗号 — 元素之间可能漏了逗号';
+        }
+      } else {
+        reason = '缺少逗号或闭合符号 — 请检查括号是否匹配';
+      }
     } else if (message.includes('Unexpected token')) {
       const tokenMatch = message.match(/Unexpected token '?([^']*)'?/);
       const token = tokenMatch ? tokenMatch[1] : '';
-      reason = `意外的字符 "${token}"`;
+      if (token === '}' || token === ']') {
+        reason = `多余的闭合符号 "${token}" — 可能缺少对应的开启符号或位置不对`;
+      } else {
+        reason = `意外的字符 "${token}"`;
+      }
     } else if (message.includes('Unexpected string')) {
-      reason = '此处出现意外的字符串（可能缺少逗号或冒号）';
+      reason = '缺少逗号 — 此键名前一行末尾可能漏了逗号';
     } else if (message.includes('Unexpected number')) {
       reason = '此处出现意外的数字（可能缺少逗号）';
     }

@@ -114,6 +114,52 @@ describe('App - JSON 语法错误显示', () => {
     const statusText = document.querySelector('.status-text').textContent;
     expect(statusText).toContain('行');
   });
+
+  it('缺少逗号时错误应指向漏逗号的行（而非解析器报错的下一行）', async () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+    // 第 3 行末尾缺少逗号（"b": 2 后面没有逗号）
+    // 解析器原本报错在第 4 行（"c" 处），修正后应指向第 3 行
+    fireEvent.change(textarea, { target: { value: '{\n  "a": 1,\n  "b": 2\n  "c": 3\n}' } });
+    await waitFor(() => {
+      const status = document.querySelector('.status-text');
+      expect(status.classList.contains('status-error')).toBe(true);
+    }, { timeout: 1000 });
+    // 错误应指向第 3 行（漏逗号的那行），而非第 4 行
+    const statusText = document.querySelector('.status-text').textContent;
+    expect(statusText).toContain('第 3 行');
+    expect(statusText).toContain('缺少逗号');
+  });
+
+  it('缺少闭合大括号时错误应指向未闭合的行', async () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+    // 缺少两个闭合大括号：第 3 行和第 1 行的 { 都未闭合
+    fireEvent.change(textarea, { target: { value: '{\n  "a": 1,\n  "b": {\n    "c": 2\n' } });
+    await waitFor(() => {
+      const status = document.querySelector('.status-text');
+      expect(status.classList.contains('status-error')).toBe(true);
+    }, { timeout: 1000 });
+    const statusText = document.querySelector('.status-text').textContent;
+    // 应指向最深层未闭合的 {（第 3 行）
+    expect(statusText).toContain('第 3 行');
+    expect(statusText).toContain('}');
+    expect(statusText).toContain('未闭合');
+  });
+
+  it('缺少闭合中括号时错误应指向未闭合的行', async () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+    // 第 2 行的 [ 未闭合（缺少 ]），文件以 } 结束
+    fireEvent.change(textarea, { target: { value: '{\n  "a": [1, 2, 3\n}' } });
+    await waitFor(() => {
+      const status = document.querySelector('.status-text');
+      expect(status.classList.contains('status-error')).toBe(true);
+    }, { timeout: 1000 });
+    const statusText = document.querySelector('.status-text').textContent;
+    expect(statusText).toContain('[');
+    expect(statusText).toContain('未闭合');
+  });
 });
 
 describe('App - 复制到剪贴板', () => {
