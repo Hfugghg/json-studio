@@ -75,6 +75,7 @@ function App() {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const [toolbarHidden, setToolbarHidden] = useState(false);
+  const [dragOver, setDragOver] = useState(false); // 拖放文件视觉反馈
   const treeViewportRef = useRef(null);
 
   // ========== 解析 JSON ==========
@@ -327,6 +328,54 @@ function App() {
     };
     reader.readAsText(file);
     e.target.value = '';
+  }, [scheduleParse]);
+
+  // ========== 拖放文件打开 ==========
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) {
+      setDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 仅在真正离开容器时取消（避免子元素触发）
+    const rect = e.currentTarget.getBoundingClientRect();
+    const { clientX: x, clientY: y } = e;
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    // 仅接受 JSON 相关类型和无扩展名的文件
+    const acceptedTypes = ['application/json', 'text/plain', 'text/json', ''];
+    const isJson = acceptedTypes.includes(file.type) ||
+      file.name.toLowerCase().endsWith('.json') ||
+      file.name.toLowerCase().endsWith('.jsonl');
+    if (!isJson) {
+      setStatus('✕ 仅支持 JSON 文件');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      setCode(text);
+      scheduleParse(text);
+      setCurrentFile(null); // 拖放的文件不在文件面板中，清除当前文件
+      setStatus(`✓ 已加载 ${file.name}`);
+    };
+    reader.onerror = () => setStatus('✕ 读取文件失败');
+    reader.readAsText(file);
   }, [scheduleParse]);
 
   const handlePaste = useCallback(async () => {
@@ -594,7 +643,21 @@ function App() {
   }, [code, scheduleParse]);
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* 拖放文件时的视觉遮罩 */}
+      {dragOver && (
+        <div className="drag-overlay">
+          <div className="drag-overlay-content">
+            <span className="drag-overlay-icon">📄</span>
+            <span className="drag-overlay-text">拖放 JSON 文件到此处打开</span>
+          </div>
+        </div>
+      )}
       {/* 顶部工具栏 */}
       <header className={`toolbar ${toolbarHidden ? 'toolbar-hidden' : ''}`}>
         <div className="toolbar-left">
