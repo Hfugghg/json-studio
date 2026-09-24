@@ -160,6 +160,40 @@ describe('App - JSON 语法错误显示', () => {
     expect(statusText).toContain('[');
     expect(statusText).toContain('未闭合');
   });
+
+  it('删除 [ 后错误应定位到被删除的行（而非 X+2 行）', async () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+    // 第 2 行的 [ 被删除："a": 后面直接跟数组元素
+    // V8 报错在 line 4（"Expected double-quoted property name"），应修正为 line 2
+    fireEvent.change(textarea, { target: { value: '{\n  "a":\n    1,\n    2\n  ]\n}' } });
+    await waitFor(() => {
+      const status = document.querySelector('.status-text');
+      expect(status.classList.contains('status-error')).toBe(true);
+    }, { timeout: 1000 });
+    const statusText = document.querySelector('.status-text').textContent;
+    // 应指向第 2 行（括号被删除的行），而非第 4 行
+    expect(statusText).toContain('第 2 行');
+    expect(statusText).toContain('[');
+    expect(statusText).toContain('缺少开启符号');
+  });
+
+  it('删除 { 后错误应定位到被删除的行（而非 X+1 行）', async () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+    // 第 2 行的 { 被删除："a": 后面直接跟 "b": 1
+    // V8 报错在 line 3（"Expected ',' or '}' after property value"），应修正为 line 2
+    fireEvent.change(textarea, { target: { value: '{\n  "a":\n    "b": 1\n  }\n}' } });
+    await waitFor(() => {
+      const status = document.querySelector('.status-text');
+      expect(status.classList.contains('status-error')).toBe(true);
+    }, { timeout: 1000 });
+    const statusText = document.querySelector('.status-text').textContent;
+    // 应指向第 2 行（括号被删除的行），而非第 3 行
+    expect(statusText).toContain('第 2 行');
+    expect(statusText).toContain('{');
+    expect(statusText).toContain('缺少开启符号');
+  });
 });
 
 describe('App - 复制到剪贴板', () => {

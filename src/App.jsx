@@ -153,6 +153,35 @@ function App() {
     return null;
   };
 
+  // 查找被删除的开启括号所在的行
+  // 当删除 [ 或 { 后，"key": 行后面没有值，解析器在后续行报错
+  // 从错误行向上查找以 "key": 结尾的行，返回该行信息及推断的括号类型
+  const findMissingOpenBracketLine = (text, errorLine) => {
+    const lines = text.split('\n');
+    // 从错误行的上一行开始向上查找（限制扫描范围，避免误匹配过远的行）
+    const searchStart = Math.max(0, errorLine - 2);
+    const searchEnd = Math.max(0, errorLine - 6);
+    for (let i = searchStart; i >= searchEnd; i--) {
+      const trimmed = lines[i].trim();
+      // 匹配行尾是 "key": 的模式（冒号后只有空白或行尾）
+      const match = trimmed.match(/"([^"]+)"\s*:\s*$/);
+      if (match) {
+        // 判断应该是 [ 还是 {：看下一行的内容
+        const nextLine = (lines[i + 1] || '').trim();
+        let expectedBracket = '[';
+        if (nextLine.startsWith('"') && nextLine.includes('":')) {
+          expectedBracket = '{';
+        }
+        return { line: i + 1, col: lines[i].length, key: match[1], expectedBracket };
+      }
+      // 遇到有完整属性值的行就停止向上查找（说明不是删除括号的情况）
+      if (trimmed.length > 0 && /"([^"]+)"\s*:\s*["0-9tfn{[-]/.test(trimmed)) {
+        break;
+      }
+    }
+    return null;
+  };
+
   // 解析 JSON 错误位置
   const parseErrorPosition = useCallback((err, text) => {
     const message = err.message || '';
@@ -195,10 +224,28 @@ function App() {
       }
     } else if (message.startsWith('Expected')) {
       // V8 新格式："Expected ',' or '}' after property value at position N (line X column Y)"
-      // 报错位置在下一个元素开头，真正错误在上一行末尾（漏了逗号）
       const charAtPos = pos !== null && pos < text.length ? text[pos] : null;
 
-      if (charAtPos === '"' || /[0-9tfn]/.test(charAtPos || '')) {
+      // 首先检测：是否因删除开启括号 [ 或 { 导致的错误
+      // 删除 [ 的特征：报错 "Expected double-quoted property name" 或 "Expected ':' after property name"
+      // 删除 { 的特征：报错 "Expected ',' or '}' after property value" 且 charAtPos 是 ':'
+      const isMissingOpenBracketMsg =
+        message.includes('double-quoted property name') ||
+        message.includes("':' after property name") ||
+        (charAtPos === ':' && message.includes("',' or '}' after property value"));
+
+      if (isMissingOpenBracketMsg) {
+        const missing = findMissingOpenBracketLine(text, line);
+        if (missing) {
+          line = missing.line;
+          column = missing.col;
+          reason = `缺少开启符号 "${missing.expectedBracket}" — "${missing.key}" 后面应该有 ${missing.expectedBracket}`;
+        } else if (charAtPos === '"' || /[0-9tfn]/.test(charAtPos || '')) {
+          reason = '缺少逗号 — 元素之间可能漏了逗号';
+        } else {
+          reason = '缺少逗号或闭合符号 — 请检查括号是否匹配';
+        }
+      } else if (charAtPos === '"' || /[0-9tfn]/.test(charAtPos || '')) {
         // 下一个 token 是字符串/数字/布尔/null → 缺少逗号
         if (line > 1) {
           const prevLineEnd = text.lastIndexOf('\n', (pos || 0) - 1);
