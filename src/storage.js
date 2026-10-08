@@ -8,6 +8,8 @@ const API = '/api';
 const LS_STORE = 'json-editor-files';
 const PROBE_TIMEOUT = 1500;
 
+const VIEW_MODES = ['code', 'split', 'tree'];
+
 // null = 尚未探测；true = 服务端；false = 浏览器本地存储
 let backendReady = null;
 
@@ -150,4 +152,117 @@ export async function deleteFile(name) {
   const store = readStore();
   delete store[name];
   writeStore(store);
+}
+
+// ===== 编辑草稿 =====
+//
+// 刷新、误关标签页甚至断电，都不该带走用户正在敲的内容 —— 尤其是内容还没
+// 保存进文件的时候。这里把「正在编辑的状态」落到 localStorage，由 App 在
+// 启动时读回：
+//
+//   code        当前编辑器里的全文（含尚未保存的改动）
+//   currentFile 关联的文件名，null 表示这份内容还没落到任何文件
+//   view        代码 / 分屏 / 树形，刷新后保持原来的布局
+//   savedAt     最后一次落盘的时间，用于在界面上说明「恢复的是什么时间的内容」
+//
+// 草稿按标签页分槽，key 后缀是标签页 id（存在 sessionStorage 里）：同时开着几个
+// 标签页编辑不同文件时各写各的，不会互相覆盖。读的时候优先取自己标签页那份
+// （刷新场景），自己没有才退回最近写入的一份（关掉标签页重开、断电重启）。
+//
+// 草稿独立于文件存储模式：即使跑在 Express 服务端模式下，草稿也依然只存在
+// 浏览器里，两边的数据互不干扰。
+
+const LS_DRAFT_PREFIX = 'json-editor-draft:';
+const LS_TAB_ID = 'json-editor-tab-id';
+// 同一时刻只保留最近几份草稿，免得陈年草稿一直占着 localStorage
+const MAX_DRAFTS = 3;
+
+// 标签页身份：sessionStorage 在同标签页内刷新后仍在、换标签页就换一份，
+// 正好等于「一次持续的编辑会话」。
+function getTabId() {
+  try {
+    let id = sessionStorage.getItem(LS_TAB_ID);
+    if (!id) {
+      id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      sessionStorage.setItem(LS_TAB_ID, id);
+    }
+    return id;
+  } catch {
+    // sessionStorage 不可用（隐私模式等）时退回共用一份，功能降级但不会崩
+    return 'shared';
+  }
+}
+
+// 把存着的一行 JSON 解析成草稿；结构不可信（被别的东西写过 / 手工改坏）时返回 null，
+// 调用方据此回退到默认内容，而不是把一个半损坏的对象塞进编辑器。
+function parseDraft(raw) {
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object' || typeof data.code !== 'string') return null;
+
+    return {
+      code: data.code,
+      currentFile: typeof data.currentFile === 'string' ? data.currentFile : null,
+      view: VIEW_MODES.includes(data.view) ? data.view : 'split',
+      savedAt: typeof data.savedAt === 'string' ? data.savedAt : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function listDraftKeys() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(LS_DRAFT_PREFIX)) keys.push(key);
+  }
+  return keys;
+}
+
+export function loadDraft() {
+  try {
+    const own = parseDraft(localStorage.getItem(LS_DRAFT_PREFIX + getTabId()));
+    if (own) return own;
+
+    let newest = null;
+    for (const key of listDraftKeys()) {
+      const draft = parseDraft(localStorage.getItem(key));
+      if (draft && (!newest || (draft.savedAt || '') > (newest.savedAt || ''))) newest = draft;
+    }
+    return newest;
+  } catch {
+    return null;
+  }
+}
+
+// 写入草稿。返回 false 表示写入失败 —— 通常是内容太大撑爆了 localStorage 配额，
+// 调用方需要提示用户手动保存到文件。
+export function saveDraft(draft) {
+  const key = LS_DRAFT_PREFIX + getTabId();
+  try {
+    localStorage.setItem(key, JSON.stringify({ ...draft, savedAt: new Date().toISOString() }));
+  } catch {
+    return false;
+  }
+  pruneDrafts(key);
+  return true;
+}
+
+// 超出上限时按写入时间淘汰最旧的几份，自己这份永远保留
+function pruneDrafts(keepKey) {
+  try {
+    const keys = listDraftKeys();
+    if (keys.length <= MAX_DRAFTS) return;
+
+    keys
+      .filter((key) => key !== keepKey)
+      .map((key) => ({ key, savedAt: parseDraft(localStorage.getItem(key))?.savedAt || '' }))
+      .sort((a, b) => (a.savedAt < b.savedAt ? -1 : 1))
+      .slice(0, keys.length - MAX_DRAFTS)
+      .forEach(({ key }) => localStorage.removeItem(key));
+  } catch {
+    // 淘汰失败不影响主流程，最坏也只是多留几份草稿
+  }
 }

@@ -1,10 +1,17 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import TreeView from './TreeView';
-import { listFiles, readFile, saveFile, createFile, deleteFile, detectMode } from './storage';
+import {
+  listFiles, readFile, saveFile, createFile, deleteFile, detectMode,
+  loadDraft, saveDraft,
+} from './storage';
 import './App.css';
 
-const SAMPLE_JSON = `{
+// 草稿落盘的防抖时长：停顿约半秒就把当前内容写进 localStorage，
+// 这样「敲完最后一个字马上拔电源」的丢失窗口只有几百毫秒。
+const DRAFT_SAVE_DELAY = 400;
+
+export const SAMPLE_JSON = `{
   "name": "万能 JSON 编辑器",
   "version": "1.0.0",
   "features": [
@@ -27,8 +34,24 @@ const SAMPLE_JSON = `{
   }
 }`;
 
+// 把草稿时间戳格式化成「MM-DD HH:mm」，年月对这种分钟级的恢复提示没有意义
+function formatDraftTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function App() {
-  const [code, setCode] = useState(SAMPLE_JSON);
+  // 启动时读一次草稿快照（惰性初始化，整个生命周期只读一次磁盘状态）
+  const [draft] = useState(loadDraft);
+  // 内容与示例一模一样、也没绑定任何文件的草稿没有恢复价值，忽略它，
+  // 免得新用户第一次打开就看到「已恢复上次编辑」的提示
+  const hasDraft = Boolean(draft) && (draft.code !== SAMPLE_JSON || Boolean(draft.currentFile));
+  // 草稿里记着的文件；启动时用它去取「已保存内容」的基准，这个值在会话内不再变化
+  const initialDraftFile = hasDraft ? draft.currentFile : null;
+
+  const [code, setCode] = useState(() => (hasDraft ? draft.code : SAMPLE_JSON));
   const [error, setError] = useState(null);
   const [parsedData, setParsedData] = useState(undefined);
   const [searchTerm, setSearchTerm] = useState('');
@@ -55,11 +78,16 @@ function App() {
 
   // 本地文件列表
   const [fileList, setFileList] = useState([]);
-  const [currentFile, setCurrentFile] = useState(null);
+  const [currentFile, setCurrentFile] = useState(initialDraftFile);
   const [showFilePanel, setShowFilePanel] = useState(true);
   const [fileLoading, setFileLoading] = useState(false);
   // 'server' = 本地 Express 服务（json-files 目录）；'local' = 浏览器 localStorage
   const [storageMode, setStorageMode] = useState(null);
+  // currentFile 在磁盘 / 浏览器存储里的那份内容，用来判断编辑器里是否有未保存的改动
+  const [savedCode, setSavedCode] = useState(null);
+  // 是否显示「已恢复上次编辑」横幅。绑定了文件的草稿要等读完文件比对过再决定：
+  // 内容一致说明上次并没有留下未保存的改动，不必打扰用户
+  const [showRestoreNotice, setShowRestoreNotice] = useState(hasDraft && !initialDraftFile);
 
   // 计算面板位置（相对于 viewport）
   const getPanelPosition = useCallback((targetEl) => {
@@ -71,7 +99,10 @@ function App() {
     };
   }, []);
   const [status, setStatus] = useState('就绪');
-  const [view, setView] = useState('split');
+  const [view, setView] = useState(() => (hasDraft ? draft.view : 'split'));
+
+  // 编辑器里的内容与 currentFile 对应的文件是否已经不一致
+  const isDirty = Boolean(currentFile) && savedCode !== null && code !== savedCode;
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const [toolbarHidden, setToolbarHidden] = useState(false);
@@ -470,6 +501,9 @@ function App() {
     reader.onload = (ev) => {
       const text = ev.target.result;
       setCode(text);
+      // 打开的是另一个文件，不能再跟原文件绑定，否则「保存」会把这份内容写进原文件
+      setCurrentFile(null);
+      setSavedCode(null);
       scheduleParse(text);
       setStatus(`✓ 已加载 ${file.name}`);
     };
@@ -518,7 +552,8 @@ function App() {
       const text = ev.target.result;
       setCode(text);
       scheduleParse(text);
-      setCurrentFile(null); // 拖放的文件不在文件面板中，清除当前文件
+      setCurrentFile(null); // 拖放的文件不在文件面板中，解除与原文件的绑定
+      setSavedCode(null);
       setStatus(`✓ 已加载 ${file.name}`);
     };
     reader.onerror = () => setStatus('✕ 读取文件失败');
@@ -529,6 +564,9 @@ function App() {
     try {
       const text = await navigator.clipboard.readText();
       setCode(text);
+      // 剪贴板里的内容来自外部，解除与原文件的绑定，避免误覆盖
+      setCurrentFile(null);
+      setSavedCode(null);
       scheduleParse(text);
       setStatus('✓ 已从剪贴板粘贴');
     } catch {
@@ -553,6 +591,84 @@ function App() {
     }
   }, []);
 
+  // ========== 草稿自动保存：刷新 / 断电都不丢正在编辑的内容 ==========
+  //
+  // 两道防线：内容变动后防抖写一次；页面被隐藏或卸载时同步补写一次，
+  // 覆盖「刚敲完立刻刷新」这种防抖还没到期的场景。
+  // 快照由 effect 闭包直接捕获当前渲染的值，不经 ref 中转，少一层时序窗口。
+  const draftFailedRef = useRef(false);
+  const lastSavedDraftRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true; // StrictMode 下会卸载再挂载一次，必须显式复位
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const snapshot = { code, currentFile, view };
+
+    const persist = () => {
+      const serialized = JSON.stringify(snapshot);
+      // 内容没变就不必重写，免得把 savedAt 刷成一个其实没编辑过的时间
+      if (serialized === lastSavedDraftRef.current) return;
+
+      if (saveDraft(snapshot)) {
+        lastSavedDraftRef.current = serialized;
+        draftFailedRef.current = false;
+        return;
+      }
+      // 写失败基本都是超出 localStorage 配额，提示一次就够，别每次输入都刷屏
+      if (mountedRef.current && !draftFailedRef.current) {
+        draftFailedRef.current = true;
+        setStatus('⚠ 内容过大，草稿自动保存失败，请及时「保存」或「下载」');
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') persist();
+    };
+    // pagehide 覆盖刷新、关闭标签页、手机切后台被系统回收
+    window.addEventListener('pagehide', persist);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const timer = setTimeout(persist, DRAFT_SAVE_DELAY);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('pagehide', persist);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      persist(); // 卸载前补最后一次
+    };
+  }, [code, currentFile, view]);
+
+  // 用户一动内容就说明他已经确认过内容还在了，把恢复提示收回，别一直占着位置
+  const restoredCodeRef = useRef(code);
+  useEffect(() => {
+    if (code !== restoredCodeRef.current) setShowRestoreNotice(false);
+  }, [code]);
+
+  // 草稿若绑定了文件，读一次它的内容作为基准，否则无法判断编辑器里是否有未保存的改动。
+  // 顺带判断草稿是否真的比文件新 —— 内容一致就说明上次关闭时并没有留下未保存的改动。
+  // 基准在会话内的变化（打开、保存、删除）由对应操作自己维护，这里只管启动这一次。
+  useEffect(() => {
+    if (!initialDraftFile) return undefined;
+    let cancelled = false;
+    readFile(initialDraftFile)
+      .then((content) => {
+        if (cancelled) return;
+        setSavedCode(content);
+        // 内容和文件对得上，说明上次并没有留下未保存的改动，不必打扰用户
+        setShowRestoreNotice(content !== draft.code);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // 文件已不在，草稿里的内容确实无处可去，照常提示用户
+        setSavedCode(null);
+        setShowRestoreNotice(true);
+      });
+    return () => { cancelled = true; };
+  }, [initialDraftFile, draft]);
+
   // 启动时解析初始 JSON，树形视图立即显示（无需等待用户输入）
   useEffect(() => {
     parseJSON(code);
@@ -568,6 +684,7 @@ function App() {
     try {
       const content = await readFile(fileName);
       setCode(content);
+      setSavedCode(content);
       scheduleParse(content);
       setCurrentFile(fileName);
       setStatus(`✓ 已打开 ${fileName}`);
@@ -585,6 +702,7 @@ function App() {
     }
     try {
       await saveFile(currentFile, code);
+      setSavedCode(code);
       setStatus(`✓ 已保存到 ${currentFile}`);
       fetchFileList(); // 刷新列表（文件大小可能变了）
     } catch (e) {
@@ -609,7 +727,10 @@ function App() {
     if (!confirm(`确定要删除 ${fileName} 吗？`)) return;
     try {
       await deleteFile(fileName);
-      if (currentFile === fileName) setCurrentFile(null);
+      if (currentFile === fileName) {
+        setCurrentFile(null);
+        setSavedCode(null);
+      }
       await fetchFileList();
       setStatus(`✓ 已删除 ${fileName}`);
     } catch (e) {
@@ -828,7 +949,11 @@ function App() {
           <button className="btn" onClick={handleUpload} title="打开单个文件">
             <span className="btn-icon">📂</span> 打开
           </button>
-          <button className="btn" onClick={handleSaveFile} title="保存到文件">
+          <button
+            className={`btn ${isDirty ? 'btn-dirty' : ''}`}
+            onClick={handleSaveFile}
+            title={isDirty ? '有未保存的改动，点击写入文件' : '保存到文件'}
+          >
             <span className="btn-icon">💾</span> 保存
           </button>
           <div className="divider" />
@@ -929,12 +1054,36 @@ function App() {
                 >
                   <span className="file-item-icon">{'{ }'}</span>
                   <span className="file-item-name">{f.name}</span>
-                  {currentFile === f.name && <span className="file-item-badge">当前</span>}
+                  {currentFile === f.name && (
+                    <>
+                      <span className="file-item-badge">当前</span>
+                      {isDirty && <span className="file-item-badge file-item-badge-dirty">未保存</span>}
+                    </>
+                  )}
                   <button className="file-item-delete" onClick={(e) => { e.stopPropagation(); handleDeleteFile(f.name); }} title="删除">✕</button>
                 </div>
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {/* 草稿恢复提示 */}
+      {showRestoreNotice && (
+        <div className="restore-notice">
+          <span className="restore-notice-icon">📌</span>
+          <span className="restore-notice-text">
+            已恢复上次未关闭的编辑内容
+            {currentFile ? `（${currentFile}）` : '（未保存到文件）'}
+            {draft?.savedAt && ` · 自动保存于 ${formatDraftTime(draft.savedAt)}`}
+          </span>
+          <button
+            className="restore-notice-close"
+            onClick={() => setShowRestoreNotice(false)}
+            title="关闭提示"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -944,7 +1093,14 @@ function App() {
         {(view === 'code' || view === 'split') && (
           <div className="panel code-panel">
             <div className="panel-header">
-              <span className="panel-title">代码</span>
+              <span className="panel-title">
+                代码
+                {currentFile && (
+                  <span className="panel-file-name" title={isDirty ? '当前文件有未保存的改动' : '当前文件'}>
+                    {currentFile}{isDirty ? ' *' : ''}
+                  </span>
+                )}
+              </span>
               <span className="panel-info">
                 {errorLine ? (
                   <span className="panel-error-info">✕ 第 {errorLine} 行{errorDetail ? `: ${errorDetail.reason}` : ''}</span>

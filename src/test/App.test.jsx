@@ -1,6 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import App from '../App';
+import App, { SAMPLE_JSON } from '../App';
+
+const DRAFT_PREFIX = 'json-editor-draft:';
+
+// 读回草稿，草稿不存在时返回 null（方便直接断言「没写进去」）。
+// 草稿按标签页分槽，这里不关心是哪个槽，取到任意一份即可。
+function readDraft() {
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(DRAFT_PREFIX)) return JSON.parse(localStorage.getItem(key));
+  }
+  return null;
+}
+
+// 预置一份草稿。用固定的槽名：页面启动时还没有自己标签页的草稿，
+// 会退回「最近写入的一份」，正好就是这份。
+function seedDraft(draft) {
+  localStorage.setItem(`${DRAFT_PREFIX}seeded`, JSON.stringify(draft));
+}
 
 // ===== 模拟 fetch：后端不可用，退回 localStorage 模式 =====
 vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('no backend'))));
@@ -219,5 +237,84 @@ describe('App - 视图切换', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '代码' }));
     expect(document.querySelector('.code-input')).toBeInTheDocument();
+  });
+});
+
+describe('App - 草稿恢复', () => {
+  it('没有草稿时加载示例 JSON，且不弹恢复提示', () => {
+    render(<App />);
+    expect(document.querySelector('.code-input').value).toBe(SAMPLE_JSON);
+    expect(document.querySelector('.restore-notice')).not.toBeInTheDocument();
+  });
+
+  it('草稿里没保存的内容会在刷新后回到编辑器', () => {
+    seedDraft({
+      code: '{"draft":"断电前没来得及保存的内容"}',
+      currentFile: null,
+      view: 'split',
+      savedAt: '2026-10-08T04:00:00.000Z',
+    });
+
+    render(<App />);
+
+    expect(document.querySelector('.code-input').value).toBe('{"draft":"断电前没来得及保存的内容"}');
+    expect(document.querySelector('.restore-notice')).toBeInTheDocument();
+  });
+
+  it('草稿里的视图模式一并恢复（树形）', () => {
+    seedDraft({ code: '{"a":1}', currentFile: null, view: 'tree', savedAt: null });
+
+    render(<App />);
+
+    expect(document.querySelector('.tree-viewport')).toBeInTheDocument();
+    expect(document.querySelector('.code-input')).not.toBeInTheDocument();
+  });
+
+  it('草稿与它绑定的文件对不上时，提示并标出未保存', async () => {
+    // 浏览器存储模式下预置一个文件，内容和草稿故意不同
+    localStorage.setItem('json-editor-files', JSON.stringify({
+      'a.json': { content: '{"a":1}', modified: new Date().toISOString() },
+    }));
+    seedDraft({ code: '{"a":999}', currentFile: 'a.json', view: 'split', savedAt: null });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.querySelector('.restore-notice')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(document.querySelector('.btn-dirty')).toBeInTheDocument();
+    });
+  });
+
+  it('草稿内容与示例完全一致时不打扰用户，不显示恢复提示', () => {
+    seedDraft({ code: SAMPLE_JSON, currentFile: null, view: 'split', savedAt: null });
+
+    render(<App />);
+
+    expect(document.querySelector('.code-input').value).toBe(SAMPLE_JSON);
+    expect(document.querySelector('.restore-notice')).not.toBeInTheDocument();
+  });
+});
+
+describe('App - 草稿写入', () => {
+  it('卸载时立刻落盘，覆盖「敲完马上刷新」防抖还没到期的场景', () => {
+    const { unmount } = render(<App />);
+    fireEvent.change(document.querySelector('.code-input'), {
+      target: { value: '{"typed":"刚敲完就刷新"}' },
+    });
+
+    unmount();
+
+    expect(readDraft().code).toBe('{"typed":"刚敲完就刷新"}');
+  });
+
+  it('停止输入后自动写入草稿', async () => {
+    render(<App />);
+    fireEvent.change(document.querySelector('.code-input'), { target: { value: '{"auto":true}' } });
+
+    await waitFor(() => {
+      expect(readDraft()?.code).toBe('{"auto":true}');
+    }, { timeout: 2000 });
   });
 });

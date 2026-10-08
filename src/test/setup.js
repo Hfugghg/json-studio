@@ -36,7 +36,8 @@ afterEach(() => {
   cleanup();
 });
 
-// 每个测试前清理 localStorage
+// 每个测试前清理 localStorage 与 sessionStorage（草稿的标签页 id 存在后者里）
 beforeEach(() => {
   globalThis.localStorage.clear();
+  globalThis.sessionStorage.clear();
 });

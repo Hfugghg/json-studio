@@ -156,3 +156,125 @@ describe('storage.js - writeStore 错误处理', () => {
     localStorage.setItem = originalSetItem;
   });
 });
+
+describe('storage.js - 编辑草稿', () => {
+  const DRAFT_PREFIX = 'json-editor-draft:';
+  const TAB_ID_KEY = 'json-editor-tab-id';
+
+  // 列出当前所有草稿槽，用来断言「谁被写了 / 谁被淘汰了」
+  function draftKeys() {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+    return keys.filter((k) => k.startsWith(DRAFT_PREFIX)).sort();
+  }
+  const useTab = (id) => sessionStorage.setItem(TAB_ID_KEY, id);
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('没有草稿时返回 null', async () => {
+    const { loadDraft } = await import('../storage.js');
+    expect(loadDraft()).toBeNull();
+  });
+
+  it('saveDraft 写入的内容能原样读回，并带上保存时间', async () => {
+    const { saveDraft, loadDraft } = await import('../storage.js');
+    useTab('tab-a');
+
+    expect(saveDraft({ code: '{"a":1}', currentFile: 'demo.json', view: 'tree' })).toBe(true);
+
+    const draft = loadDraft();
+    expect(draft.code).toBe('{"a":1}');
+    expect(draft.currentFile).toBe('demo.json');
+    expect(draft.view).toBe('tree');
+    // savedAt 应当是合法时间戳，用来告诉用户恢复的是哪个时刻的内容
+    expect(Number.isNaN(Date.parse(draft.savedAt))).toBe(false);
+  });
+
+  it('未绑定文件的草稿，currentFile 读回 null', async () => {
+    const { saveDraft, loadDraft } = await import('../storage.js');
+    useTab('tab-a');
+
+    saveDraft({ code: '{}', currentFile: null, view: 'split' });
+    expect(loadDraft().currentFile).toBeNull();
+  });
+
+  it('多个标签页各写各的，互不覆盖', async () => {
+    const { saveDraft, loadDraft } = await import('../storage.js');
+
+    useTab('tab-a');
+    saveDraft({ code: '{"tab":"a"}', currentFile: 'a.json', view: 'split' });
+
+    useTab('tab-b');
+    saveDraft({ code: '{"tab":"b"}', currentFile: 'b.json', view: 'split' });
+
+    // B 读到自己的
+    expect(loadDraft().code).toBe('{"tab":"b"}');
+
+    // 回到 A，A 的内容没被 B 冲掉
+    useTab('tab-a');
+    expect(loadDraft().code).toBe('{"tab":"a"}');
+
+    expect(draftKeys()).toEqual([`${DRAFT_PREFIX}tab-a`, `${DRAFT_PREFIX}tab-b`]);
+  });
+
+  it('没有自己草稿的新标签页退回最近写入的那一份', async () => {
+    const { saveDraft, loadDraft } = await import('../storage.js');
+
+    useTab('tab-a');
+    saveDraft({ code: '{"first":1}', currentFile: null, view: 'split' });
+    await wait(10);
+    useTab('tab-b');
+    saveDraft({ code: '{"second":2}', currentFile: null, view: 'split' });
+
+    // 断电重启 / 关掉标签页重开：全新标签页，没有自己的草稿
+    useTab('tab-fresh');
+    expect(loadDraft().code).toBe('{"second":2}');
+  });
+
+  it('草稿份数超过上限时淘汰最旧的一份', async () => {
+    const { saveDraft } = await import('../storage.js');
+
+    for (const id of ['t1', 't2', 't3', 't4']) {
+      useTab(id);
+      saveDraft({ code: `{"t":"${id}"}`, currentFile: null, view: 'split' });
+      await wait(10);
+    }
+
+    expect(draftKeys()).toHaveLength(3);
+    expect(draftKeys()).not.toContain(`${DRAFT_PREFIX}t1`); // 最旧的被清掉
+    expect(draftKeys()).toContain(`${DRAFT_PREFIX}t4`); // 自己这份永远保留
+  });
+
+  it('草稿被改坏成非法 JSON 时返回 null，而不是把脏数据交给调用方', async () => {
+    const { loadDraft } = await import('../storage.js');
+    localStorage.setItem(`${DRAFT_PREFIX}broken`, '{ 这不是 JSON');
+    expect(loadDraft()).toBeNull();
+  });
+
+  it('缺少 code 字段的草稿视为无效', async () => {
+    const { loadDraft } = await import('../storage.js');
+    localStorage.setItem(`${DRAFT_PREFIX}broken`, JSON.stringify({ currentFile: 'a.json' }));
+    expect(loadDraft()).toBeNull();
+  });
+
+  it('非法的 view 回退到 split，非字符串的 currentFile 归为 null', async () => {
+    const { loadDraft } = await import('../storage.js');
+    localStorage.setItem(
+      `${DRAFT_PREFIX}broken`,
+      JSON.stringify({ code: '{}', view: 'hacker', currentFile: 42 }),
+    );
+
+    const draft = loadDraft();
+    expect(draft.view).toBe('split');
+    expect(draft.currentFile).toBeNull();
+  });
+
+  it('写入失败（超出配额）时返回 false', async () => {
+    const originalSetItem = localStorage.setItem;
+    localStorage.setItem = () => {
+      throw new Error('QuotaExceeded');
+    };
+    const { saveDraft } = await import('../storage.js');
+    expect(saveDraft({ code: '{}', currentFile: null, view: 'split' })).toBe(false);
+    localStorage.setItem = originalSetItem;
+  });
+});

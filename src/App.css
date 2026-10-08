@@ -134,6 +134,55 @@
   font-weight: 600;
 }
 
+.file-item-badge-dirty {
+  background: var(--warning);
+}
+
+/* ===== 草稿恢复提示 ===== */
+.restore-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  background: rgba(108, 140, 255, 0.12);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.restore-notice-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.restore-notice-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.restore-notice-close {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.restore-notice-close:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .file-item-delete {
   width: 18px;
   height: 18px;
@@ -254,6 +303,18 @@
   background: rgba(248, 113, 113, 0.15);
   border-color: var(--error);
   color: var(--error);
+}
+
+/* 有未保存改动时把「保存」按钮点亮，避免用户以为已经存过了 */
+.btn-dirty {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.btn-dirty:hover {
+  background: rgba(251, 191, 36, 0.15);
+  border-color: var(--warning);
+  color: var(--warning);
 }
 
 .divider {
@@ -513,6 +574,16 @@
   color: var(--text-bright);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+/* 面板标题后面跟的「当前文件」小字，用来提示改动会存到哪里 */
+.panel-file-name {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent);
 }
 
 .panel-info {
