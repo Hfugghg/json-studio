@@ -163,3 +163,33 @@ describe('TreeView - 隐藏键', () => {
     expect(confirmButtons[0].textContent).toBe('隐藏');
   });
 });
+
+describe('TreeView - 过滤导致节点消失', () => {
+  // 节点从「渲染」变成「被过滤掉」时，组件内部的 Hook 调用数量不能跟着变，
+  // 否则 React 会抛 "Rendered fewer hooks than expected"。
+  it('搜索过滤掉已有节点后不崩溃', () => {
+    const { rerender } = render(
+      <TreeView data={{ name: 'test', count: 42 }} hiddenKeys={[]} searchTerm="" />
+    );
+    expect(screen.getByText('name')).toBeInTheDocument();
+
+    expect(() => {
+      rerender(<TreeView data={{ name: 'test', count: 42 }} hiddenKeys={[]} searchTerm="count" />);
+    }).not.toThrow();
+
+    expect(screen.queryByText('name')).not.toBeInTheDocument();
+  });
+
+  it('中途隐藏某个键后不崩溃', () => {
+    const { rerender } = render(
+      <TreeView data={{ visible: 1, secret: 2 }} hiddenKeys={[]} />
+    );
+    expect(screen.getByText('secret')).toBeInTheDocument();
+
+    expect(() => {
+      rerender(<TreeView data={{ visible: 1, secret: 2 }} hiddenKeys={['secret']} />);
+    }).not.toThrow();
+
+    expect(screen.queryByText('secret')).not.toBeInTheDocument();
+  });
+});

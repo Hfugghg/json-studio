@@ -171,6 +171,9 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
   const [editing, setEditing] = useState(false);
   const [editingKey, setEditingKey] = useState(false);
   const [confirmHide, setConfirmHide] = useState(false);
+  // 必须在下面所有提前 return 之前调用：跟着分支走会让 Hook 数量随「节点是否被
+  // 过滤」变化，违反 Hooks 规则（lint 报 react-hooks/rules-of-hooks）
+  const allocateLine = useContext(LineCounterContext);
   const type = getValueType(value);
   const isExpandable = type === 'object' || type === 'array';
   const childCount = isExpandable
@@ -193,7 +196,7 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
   }
 
   // 分配行号（通过 context 获取分配函数，避免渲染中 ref mutation）（H10）
-  const allocateLine = useContext(LineCounterContext);
+  // 被过滤掉的节点在上面就 return 了，不会占用行号
   const currentLine = allocateLine();
 
   const toggle = () => { if (isExpandable) setCollapsed(c => !c); };
