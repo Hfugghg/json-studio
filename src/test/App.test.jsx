@@ -297,6 +297,85 @@ describe('App - 草稿恢复', () => {
   });
 });
 
+describe('App - 改动行标记', () => {
+  // 预置一个「已保存过的文件」，打开它就有了比对基准
+  function seedSavedFile() {
+    localStorage.setItem('json-editor-files', JSON.stringify({
+      'saved.json': { content: '{\n  "a": 1\n}', modified: new Date().toISOString() },
+    }));
+  }
+
+  async function openSavedFile() {
+    await waitFor(() => {
+      expect(document.querySelector('.file-item')).toBeInTheDocument();
+    });
+    fireEvent.click(document.querySelector('.file-item'));
+    await waitFor(() => {
+      expect(document.querySelector('.code-input').value).toBe('{\n  "a": 1\n}');
+    });
+  }
+
+  it('刚打开文件时没有任何改动标记', async () => {
+    seedSavedFile();
+    render(<App />);
+    await openSavedFile();
+
+    expect(document.querySelectorAll('.line-number-changed').length).toBe(0);
+    expect(document.querySelectorAll('.line-number-deleted').length).toBe(0);
+  });
+
+  it('改了哪一行，左侧就在哪一行标出来', async () => {
+    seedSavedFile();
+    render(<App />);
+    await openSavedFile();
+
+    // 只改第 2 行的值
+    fireEvent.change(document.querySelector('.code-input'), {
+      target: { value: '{\n  "a": 2\n}' },
+    });
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('.line-number-changed').length).toBe(1);
+    });
+    // 标记落第 2 行（行号文本为 "2" 的那个元素）
+    const marked = document.querySelector('.line-number-changed');
+    expect(marked.textContent).toBe('2');
+  });
+
+  it('删掉一行时在对应位置留下删除记号', async () => {
+    seedSavedFile();
+    render(<App />);
+    await openSavedFile();
+
+    fireEvent.change(document.querySelector('.code-input'), {
+      target: { value: '{\n}' },
+    });
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('.line-number-deleted').length).toBe(1);
+    });
+  });
+
+  it('保存之后标记消失', async () => {
+    seedSavedFile();
+    render(<App />);
+    await openSavedFile();
+
+    fireEvent.change(document.querySelector('.code-input'), {
+      target: { value: '{\n  "a": 2\n}' },
+    });
+    await waitFor(() => {
+      expect(document.querySelectorAll('.line-number-changed').length).toBe(1);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /保存/ }));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('.line-number-changed').length).toBe(0);
+    });
+  });
+});
+
 describe('App - 草稿写入', () => {
   it('卸载时立刻落盘，覆盖「敲完马上刷新」防抖还没到期的场景', () => {
     const { unmount } = render(<App />);

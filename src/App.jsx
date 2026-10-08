@@ -5,6 +5,7 @@ import {
   listFiles, readFile, saveFile, createFile, deleteFile, detectMode,
   loadDraft, saveDraft,
 } from './storage';
+import { diffLines } from './diff';
 import './App.css';
 
 // 草稿落盘的防抖时长：停顿约半秒就把当前内容写进 localStorage，
@@ -103,6 +104,13 @@ function App() {
 
   // 编辑器里的内容与 currentFile 对应的文件是否已经不一致
   const isDirty = Boolean(currentFile) && savedCode !== null && code !== savedCode;
+
+  // 与文件里已保存内容不一致的行，用来在左侧行号区标出「改了哪些地方」。
+  // 没有基准（这份内容还没跟任何文件绑定过）就无从比较，不显示标记。
+  const changedLines = useMemo(() => {
+    if (savedCode === null || code === savedCode) return null;
+    return diffLines(savedCode, code);
+  }, [code, savedCode]);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const [toolbarHidden, setToolbarHidden] = useState(false);
@@ -1111,15 +1119,30 @@ function App() {
             </div>
             <div className="editor-wrapper">
               <div className="line-numbers" ref={lineNumbersRef}>
-                {codeLines.map((_, i) => (
-                  <div
-                    key={i}
-                    className={`line-number ${errorLine === i + 1 ? 'line-number-error' : ''}`}
-                    title={errorLine === i + 1 && errorDetail ? errorDetail.reason : undefined}
-                  >
-                    {i + 1}
-                  </div>
-                ))}
+                {codeLines.map((_, i) => {
+                  const isError = errorLine === i + 1;
+                  const isChanged = changedLines !== null && changedLines.changed.has(i);
+                  const isDeleted = changedLines !== null && changedLines.deletedBefore.has(i);
+                  return (
+                    <div
+                      key={i}
+                      className={
+                        'line-number'
+                        + (isError ? ' line-number-error' : '')
+                        + (isDeleted ? ' line-number-deleted' : '')
+                        + (isChanged ? ' line-number-changed' : '')
+                      }
+                      title={
+                        isError && errorDetail ? errorDetail.reason
+                          : isChanged ? '与文件里已保存的内容不同'
+                            : isDeleted ? '这一行上面有内容被删掉'
+                              : undefined
+                      }
+                    >
+                      {i + 1}
+                    </div>
+                  );
+                })}
               </div>
               <textarea
                 ref={textareaRef}

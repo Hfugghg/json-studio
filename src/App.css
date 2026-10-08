@@ -619,6 +619,32 @@
   position: relative;
 }
 
+/* 与文件里已保存内容不一致的行：行号区最左侧一条竖线，保存后自动消失 */
+.line-number-changed {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.line-number-changed::before,
+.line-number-deleted::before {
+  content: '';
+  position: absolute;
+  left: -8px; /* 顶到行号区左边缘，多行连起来就是一条连续的标记线 */
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+}
+
+/* 这一行本身没变，只是它上面有内容被删掉了 */
+.line-number-deleted {
+  opacity: 0.85;
+}
+
+.line-number-deleted::before {
+  background: var(--warning);
+}
+
 .line-number-error {
   color: var(--error);
   opacity: 1;
