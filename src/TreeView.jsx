@@ -146,11 +146,11 @@ function AddButton({ onAdd }) {
 
   return (
     <div className="add-btn-wrapper">
-      <button className="add-btn" onClick={() => setOpen(!open)} title="添加子节点">+</button>
+      <button className="add-btn" onClick={() => setOpen(!open)} title="添加子节点" aria-label="添加子节点" aria-haspopup="menu" aria-expanded={open}>+</button>
       {open && (
-        <div className="add-menu">
+        <div className="add-menu" role="menu">
           {types.map(t => (
-            <button key={t} className="add-menu-item" onClick={() => { onAdd(defaultValueForType(t)); setOpen(false); }}>
+            <button key={t} className="add-menu-item" role="menuitem" onClick={() => { onAdd(defaultValueForType(t)); setOpen(false); }}>
               <span className={`type-dot type-${t}`}></span>{t}
             </button>
           ))}
@@ -316,7 +316,7 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
             confirmHide ? (
               <HideConfirm nodeKey={nodeKey} onConfirm={handleConfirmHide} onCancel={() => setConfirmHide(false)} />
             ) : (
-              <button className="node-hide" onClick={handleHideClick} title="隐藏此键名下所有节点">👁</button>
+              <button className="node-hide" onClick={handleHideClick} title="隐藏此键名下所有节点" aria-label={`隐藏键名 ${nodeKey}`}>👁</button>
             )
           )}
           <button className="node-delete" onClick={handleDelete} title="删除整个节点" aria-label={`删除节点 ${nodeKey}`}>✕</button>
