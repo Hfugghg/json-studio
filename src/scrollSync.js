@@ -115,15 +115,33 @@ export function buildJsonPathLineMap(source) {
   return lines;
 }
 
-// Pick the deepest tree path whose value begins at or before the requested source line.
+// Build a line index once per parsed source map, then use binary search during scrolling.
+const lineIndexCache = new WeakMap();
+
 export function findClosestPathForLine(pathLineMap, requestedLine) {
-  let closestPath = null;
-  let closestLine = -1;
-  for (const [serializedPath, line] of pathLineMap) {
-    if (line <= requestedLine && line > closestLine) {
-      closestLine = line;
-      closestPath = serializedPath;
+  let lineIndex = lineIndexCache.get(pathLineMap);
+  if (!lineIndex) {
+    const firstPathByLine = new Map();
+    for (const [serializedPath, line] of pathLineMap) {
+      if (!firstPathByLine.has(line)) firstPathByLine.set(line, serializedPath);
+    }
+    lineIndex = [...firstPathByLine.entries()]
+      .map(([line, serializedPath]) => ({ line, serializedPath }))
+      .sort((a, b) => a.line - b.line);
+    lineIndexCache.set(pathLineMap, lineIndex);
+  }
+
+  let low = 0;
+  let high = lineIndex.length - 1;
+  let match = -1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (lineIndex[middle].line <= requestedLine) {
+      match = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
     }
   }
-  return closestPath;
+  return match < 0 ? null : lineIndex[match].serializedPath;
 }
