@@ -6,7 +6,12 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const app = express();
-const PORT = 3001;
+const DEFAULT_PORT = 3001;
+const configuredPort = Number.parseInt(process.env.JSON_STUDIO_PORT || String(DEFAULT_PORT), 10);
+const PORT = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535
+  ? configuredPort
+  : DEFAULT_PORT;
+const HOST = process.env.JSON_STUDIO_HOST || '127.0.0.1';
 const JSON_DIR = path.join(__dirname, 'json-files');
 
 // 确保文件夹存在
@@ -255,8 +260,8 @@ const isMainModule = (import.meta.url && process.argv[1])
 
 let server;
 if (isMainModule) {
-  server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`JSON 文件服务已启动: http://localhost:${PORT}`);
+  server = app.listen(PORT, HOST, () => {
+    console.log(`JSON 文件服务已启动: http://${HOST}:${PORT}`);
     console.log(`文件夹: ${JSON_DIR}`);
   });
 
