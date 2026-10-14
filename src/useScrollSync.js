@@ -5,7 +5,7 @@ const DEFAULT_LINE_HEIGHT = 21.45;
 const TREE_SCROLL_OFFSET = 8;
 const SCROLL_EPSILON = 1;
 
-function setScrollTopWithoutEcho(element, expectedScrollRef, nextTop) {
+export function setScrollTopWithoutEcho(element, expectedScrollRef, nextTop) {
   if (!element || Math.abs(element.scrollTop - nextTop) < SCROLL_EPSILON) return false;
 
   // Mark the target before assigning scrollTop. Its resulting scroll event is an
@@ -15,7 +15,7 @@ function setScrollTopWithoutEcho(element, expectedScrollRef, nextTop) {
   return true;
 }
 
-function consumeProgrammaticScroll(element, expectedScrollRef) {
+export function consumeProgrammaticScroll(element, expectedScrollRef) {
   const expected = expectedScrollRef.current;
   if (expected === null) return false;
 
