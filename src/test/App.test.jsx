@@ -467,3 +467,32 @@ describe('App - 草稿写入', () => {
     }, { timeout: 2000 });
   });
 });
+
+
+describe('移动端交互回归', () => {
+  it('滚动编辑器时会标记顶部文件栏可收起', async () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+
+    fireEvent.scroll(textarea, { target: { scrollTop: 150 } });
+    fireEvent.scrollEnd?.(textarea);
+
+    await waitFor(() => {
+      expect(document.querySelector('.file-panel')).toHaveClass('file-panel-hidden');
+    }, { timeout: 1000 });
+  });
+
+  it('双击树形视图的长字符串后，编辑框会随内容长度扩展', async () => {
+    render(<App />);
+    const value = await screen.findByText('"万能 JSON 编辑器"');
+    fireEvent.doubleClick(value);
+
+    const input = await screen.findByRole('textbox', { name: '编辑字符串值' });
+    fireEvent.change(input, { target: { value: 'a'.repeat(30) } });
+
+    await waitFor(() => {
+      expect(input.style.width).toBe('32ch');
+      expect(input.style.maxWidth).toBe('min(70vw, 420px)');
+    });
+  });
+});
