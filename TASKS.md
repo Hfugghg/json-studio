@@ -35,10 +35,10 @@
   - 修复: 已降低 limit 至 5mb + content 字段单独校验
   - 状态: ✅ 已完成
 
-- [ ] **H2** · 无请求频率限制
+- [x] **H2** · 无请求频率限制
   - 文件: `server.mjs`
-  - 修复: 添加 express-rate-limit
-  - 状态: ⬜ 待处理
+  - 修复: 为文件 API 添加按客户端 IP 的窗口限流、429/Retry-After 响应与过期记录清理；不额外引入运行时依赖
+  - 状态: ✅ 已完成（已添加独立单元测试）
 
 - [x] **H3** · 同步文件 I/O 阻塞事件循环
   - 文件: `server.mjs`
@@ -115,10 +115,13 @@
 - [x] **M5** · scrollend 无 fallback，旧浏览器工具栏收起失效
   - 修复: 已添加特性检测 + scroll 事件节流回退
 - [ ] **M6** · 零可访问性（ARIA/键盘/屏幕阅读器）
+  - 进展: 树形视图增加 tree/treeitem 语义、分支键盘折叠/展开与编辑输入标签；仍需继续完善焦点管理和其余控件
 - [x] **M7** · 无 TypeScript、无测试、无 CI/CD
   - 修复: 已配置 Vitest + React Testing Library，61 个测试通过
-- [ ] **M8** · getPanelPosition 无 resize 监听
-- [ ] **M9** · prompt()/confirm() 阻塞 API
+- [x] **M8** · getPanelPosition 无 resize 监听
+  - 修复: 面板打开时监听窗口 resize 和捕获阶段 scroll，并将位置限制在可视区域
+- [x] **M9** · prompt()/confirm() 阻塞 API
+  - 修复: 新建文件与删除文件改用应用内对话框，并补充交互测试
 - [ ] **M10** · 硬编码魔法值（端口、行高、颜色、SAMPLE_JSON）
 - [ ] **M11** · @types/react 对纯 JSX 项目无价值
 - [x] **M12** · 未引用资产（hero.png, react.svg, vite.svg）
@@ -152,6 +155,7 @@
 ## 🧪 测试覆盖目标
 
 - [x] 配置 Vitest + React Testing Library
+- [x] 添加 GitHub Actions CI：自动运行测试、lint 与生产构建
 - [x] storage.js 单元测试（16 个测试，覆盖 CRUD + byteSize + 错误处理）
 - [x] server.mjs API 测试（15 个测试，覆盖 CRUD + 路径遍历防护 + 错误码）
 - [x] App.jsx 关键逻辑测试（12 个测试，覆盖渲染 + 格式化/压缩/清空 + 错误 + 剪贴板 + 视图切换）
