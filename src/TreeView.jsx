@@ -232,6 +232,7 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
   if (!isExpandable) {
     return (
       <div className="tree-row tree-leaf" style={indentStyle} data-line={currentLine}
+        data-path={JSON.stringify(path)}
         role="treeitem" tabIndex={0} aria-label={`${nodeKey === 'root' ? '根节点' : String(nodeKey)}，值类型：${type}`}>
         {isArrayItem ? null : (
           <>
@@ -269,6 +270,7 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
         className="tree-row tree-branch"
         style={indentStyle}
         data-line={currentLine}
+        data-path={JSON.stringify(path)}
         role="treeitem"
         tabIndex={0}
         aria-expanded={!collapsed}
