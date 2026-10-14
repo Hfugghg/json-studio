@@ -108,6 +108,8 @@ npm start
 │   ├── App.jsx        # 主组件：编辑器、工具栏、文件面板、状态栏
 │   ├── TreeView.jsx   # 树形视图与节点增删改
 │   ├── storage.js     # 存储适配层：后端 API ↔ 浏览器存储自动切换 + 编辑草稿读写
+│   ├── useScrollSync.js # 代码区、行号和树形视图的双向滚动同步
+│   └── scrollSync.js  # JSON 路径与源代码行号映射
 │   ├── App.css        # 组件样式
 │   └── index.css      # 全局样式与主题变量
 ├── server.mjs         # Express 文件服务，读写 json-files/
@@ -120,7 +122,7 @@ npm start
 
 ### 存储适配层
 
-`src/storage.js` 是本地文件和线上体验能统一的关键。它启动时探测一次 `/api/health`：
+`src/storage.js` 是本地文件和线上体验能统一的关键。它探测 `/api/health` 并缓存结果 15 秒，缓存过期后会重新探测，以便后端启动或停止后自动切换模式：
 
 - 探测到本机 Express 服务 → 所有文件操作走真实文件系统
 - 探测不到（静态托管、服务没起、网络异常）→ 自动退回 `localStorage`
