@@ -287,6 +287,19 @@ describe('App - 视图切换', () => {
   });
 });
 
+describe('App - 滚动同步', () => {
+  it('代码区滚动时同步行号区域的位置', () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+    const lineNumbers = document.querySelector('.line-numbers');
+    textarea.scrollTop = 64;
+
+    fireEvent.scroll(textarea);
+
+    expect(lineNumbers.scrollTop).toBe(64);
+  });
+});
+
 describe('App - 草稿恢复', () => {
   it('没有草稿时加载示例 JSON，且不弹恢复提示', () => {
     render(<App />);
