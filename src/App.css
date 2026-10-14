@@ -1373,14 +1373,14 @@
   transition: max-height 0.25s ease, opacity 0.25s ease;
 }
 
-.file-panel-hidden {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  border-bottom-width: 0;
-}
-
 @media (max-width: 900px) {
+  .file-panel-hidden {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    border-bottom-width: 0;
+  }
+
   .app {
     height: 100vh;
     height: 100dvh;
