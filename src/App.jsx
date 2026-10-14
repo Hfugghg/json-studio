@@ -86,6 +86,19 @@ function App() {
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [pendingDeleteFile, setPendingDeleteFile] = useState(null);
+
+  useEffect(() => {
+    if (!showNewFileDialog && !pendingDeleteFile) return undefined;
+    const handleDialogKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setShowNewFileDialog(false);
+        setPendingDeleteFile(null);
+      }
+    };
+    window.addEventListener('keydown', handleDialogKeyDown);
+    return () => window.removeEventListener('keydown', handleDialogKeyDown);
+  }, [showNewFileDialog, pendingDeleteFile]);
+
   // 'server' = 本地 Express 服务（json-files 目录）；'local' = 浏览器 localStorage
   const [storageMode, setStorageMode] = useState(null);
   // currentFile 在磁盘 / 浏览器存储里的那份内容，用来判断编辑器里是否有未保存的改动
@@ -1091,7 +1104,7 @@ function App() {
             <h2 id="delete-file-title">删除文件？</h2>
             <p id="delete-file-description">确定要删除 <strong>{pendingDeleteFile}</strong> 吗？此操作无法撤销。</p>
             <div className="dialog-actions">
-              <button type="button" className="btn" onClick={() => setPendingDeleteFile(null)}>取消</button>
+              <button type="button" className="btn" autoFocus onClick={() => setPendingDeleteFile(null)}>取消</button>
               <button type="button" className="btn btn-danger" onClick={confirmDeleteFile}>删除</button>
             </div>
           </section>
