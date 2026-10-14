@@ -12,6 +12,12 @@ describe('Vite development server security defaults', () => {
     expect(config.server.host).toBe('127.0.0.1');
   });
 
+  it('keeps the API proxy aligned with the configured file-server port', () => {
+    vi.stubEnv('JSON_STUDIO_PORT', '4321');
+    const config = viteConfig({ command: 'serve' });
+    expect(config.server.proxy['/api'].target).toBe('http://127.0.0.1:4321');
+  });
+
   it('allows an explicit host override for intentional custom deployments', () => {
     vi.stubEnv('JSON_STUDIO_DEV_HOST', '192.0.2.10');
     const config = viteConfig({ command: 'serve' });
