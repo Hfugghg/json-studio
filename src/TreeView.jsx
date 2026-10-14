@@ -111,10 +111,7 @@ function ValueEditor({ value, type, onCommit, onCancel }) {
 
   return (
     <input ref={inputRef} className={`inline-input ${type}`}
-      style={type === 'string' ? {
-        width: `${Math.min(Math.max(editValue.length + 2, 8), 48)}ch`,
-        maxWidth: 'min(70vw, 420px)',
-      } : undefined}
+      size={Math.max(editValue.length + 1, 8)}
       type={type === 'number' ? 'number' : 'text'} value={editValue}
       aria-label={`编辑${type === 'number' ? '数字' : '字符串'}值`}
       onChange={(e) => setEditValue(e.target.value)} onBlur={commit}
@@ -137,10 +134,7 @@ function KeyEditor({ value, onCommit, onCancel }) {
 
   return (
     <input ref={inputRef} className="inline-input key-input" type="text"
-      style={{
-        width: `${Math.min(Math.max(editValue.length + 2, 8), 48)}ch`,
-        maxWidth: 'min(70vw, 420px)',
-      }}
+      size={Math.max(editValue.length + 1, 8)}
       aria-label="编辑键名" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.preventDefault(); onCancel(); } }} />
   );
