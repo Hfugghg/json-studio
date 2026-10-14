@@ -87,6 +87,16 @@ describe('App - 文件对话框', () => {
     promptSpy.mockRestore();
   });
 
+  it('按 Escape 可以关闭文件对话框', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /新建/ }));
+    expect(screen.getByRole('dialog', { name: '新建 JSON 文件' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: '新建 JSON 文件' })).not.toBeInTheDocument();
+  });
+
   it('可以通过应用内弹窗创建并打开 JSON 文件', async () => {
     render(<App />);
 
