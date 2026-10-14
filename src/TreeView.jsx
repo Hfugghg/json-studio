@@ -233,6 +233,7 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
     return (
       <div className="tree-row tree-leaf" style={indentStyle} data-line={currentLine}
         data-path={JSON.stringify(path)}
+        id={`tree-path-${encodeURIComponent(JSON.stringify(path))}`}
         role="treeitem" tabIndex={0} aria-label={`${nodeKey === 'root' ? '根节点' : String(nodeKey)}，值类型：${type}`}>
         {isArrayItem ? null : (
           <>
