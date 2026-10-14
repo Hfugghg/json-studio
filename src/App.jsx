@@ -82,6 +82,9 @@ function App() {
   const [currentFile, setCurrentFile] = useState(initialDraftFile);
   const [showFilePanel, setShowFilePanel] = useState(true);
   const [fileLoading, setFileLoading] = useState(false);
+  const [showNewFileDialog, setShowNewFileDialog] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [pendingDeleteFile, setPendingDeleteFile] = useState(null);
   // 'server' = 本地 Express 服务（json-files 目录）；'local' = 浏览器 localStorage
   const [storageMode, setStorageMode] = useState(null);
   // currentFile 在磁盘 / 浏览器存储里的那份内容，用来判断编辑器里是否有未保存的改动
@@ -718,33 +721,46 @@ function App() {
     }
   }, [currentFile, code, handleDownload, fetchFileList]);
 
-  const handleNewFile = useCallback(async () => {
-    const name = prompt('请输入新文件名（无需 .json 后缀）');
-    if (!name || !name.trim()) return;
+  const handleNewFile = useCallback(() => {
+    setNewFileName('');
+    setShowNewFileDialog(true);
+  }, []);
+
+  const handleCreateFile = useCallback(async (event) => {
+    event.preventDefault();
+    const name = newFileName.trim();
+    if (!name) return;
     try {
-      const created = await createFile(name.trim(), '{\n  \n}');
+      const created = await createFile(name, '{\n  \n}');
+      setShowNewFileDialog(false);
       await fetchFileList();
-      handleLoadFile(created);
+      await handleLoadFile(created);
       setStatus(`✓ 已创建 ${created}`);
     } catch (e) {
       setStatus('✕ 创建失败: ' + e.message);
     }
-  }, [fetchFileList, handleLoadFile]);
+  }, [newFileName, fetchFileList, handleLoadFile]);
 
-  const handleDeleteFile = useCallback(async (fileName) => {
-    if (!confirm(`确定要删除 ${fileName} 吗？`)) return;
+  const handleDeleteFile = useCallback((fileName) => {
+    setPendingDeleteFile(fileName);
+  }, []);
+
+  const confirmDeleteFile = useCallback(async () => {
+    const fileName = pendingDeleteFile;
+    if (!fileName) return;
     try {
       await deleteFile(fileName);
       if (currentFile === fileName) {
         setCurrentFile(null);
         setSavedCode(null);
       }
+      setPendingDeleteFile(null);
       await fetchFileList();
       setStatus(`✓ 已删除 ${fileName}`);
     } catch (e) {
       setStatus('✕ 删除失败: ' + e.message);
     }
-  }, [currentFile, fetchFileList]);
+  }, [pendingDeleteFile, currentFile, fetchFileList]);
 
   // ========== 隐藏/恢复键 ==========
   const hideKey = useCallback((key) => {
@@ -1092,6 +1108,47 @@ function App() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {showNewFileDialog && (
+        <div className="dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setShowNewFileDialog(false);
+        }}>
+          <form className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="new-file-title" onSubmit={handleCreateFile}>
+            <h2 id="new-file-title">新建 JSON 文件</h2>
+            <label htmlFor="new-file-name">文件名</label>
+            <input
+              id="new-file-name"
+              className="dialog-input"
+              value={newFileName}
+              onChange={(event) => setNewFileName(event.target.value)}
+              placeholder="例如 config（无需 .json 后缀）"
+              autoFocus
+              required
+              maxLength={120}
+            />
+            <p className="dialog-hint">文件将以 .json 为后缀保存。</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn" onClick={() => setShowNewFileDialog(false)}>取消</button>
+              <button type="submit" className="btn btn-primary" disabled={!newFileName.trim()}>创建</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {pendingDeleteFile && (
+        <div className="dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setPendingDeleteFile(null);
+        }}>
+          <section className="app-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-file-title" aria-describedby="delete-file-description">
+            <h2 id="delete-file-title">删除文件？</h2>
+            <p id="delete-file-description">确定要删除 <strong>{pendingDeleteFile}</strong> 吗？此操作无法撤销。</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn" onClick={() => setPendingDeleteFile(null)}>取消</button>
+              <button type="button" className="btn btn-danger" onClick={confirmDeleteFile}>删除</button>
+            </div>
+          </section>
         </div>
       )}
 
