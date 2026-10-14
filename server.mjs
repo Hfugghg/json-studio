@@ -201,8 +201,16 @@ app.use((req, res) => {
 
 // 全局错误处理中间件
 app.use((err, req, res, next) => {
+  // JSON 解析和 body 大小错误属于客户端输入问题，不应被误报为服务器故障。
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, error: '请求 JSON 格式错误' });
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ success: false, error: '请求内容超过限制' });
+  }
+
   console.error('[服务器错误]', err);
-  res.status(500).json({ success: false, error: '操作失败' });
+  return res.status(500).json({ success: false, error: '操作失败' });
 });
 
 
