@@ -72,6 +72,12 @@ describe('GET /api/files/:name', () => {
     expect(res.body.success).toBe(false);
   });
 
+  it('拒绝读取非 JSON 文件名', async () => {
+    const res = await request(app).get('/api/files/notes.txt');
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: '非法文件名' });
+  });
+
   it('路径遍历攻击返回 403', async () => {
     const res = await request(app).get('/api/files/..%2f..%2fpackage.json');
     expect(res.status).toBe(403);
@@ -141,6 +147,14 @@ describe('POST /api/files（新建）', () => {
       .send({ content: '{}' });
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
+  });
+
+  it('拒绝包含路径片段的新文件名', async () => {
+    const res = await request(app)
+      .post('/api/files')
+      .send({ name: '../outside', content: '{}' });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: '非法文件名' });
   });
 });
 
