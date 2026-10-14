@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import fs from 'fs';
 import path from 'path';
@@ -12,6 +12,7 @@ const projectRoot = path.resolve(__dirname, '../../');
 const JSON_DIR = path.join(projectRoot, 'json-files');
 
 let app;
+let createRateLimiter;
 
 beforeAll(async () => {
   // 确保 json-files 目录存在
@@ -19,6 +20,7 @@ beforeAll(async () => {
   // 动态 import server.mjs（此时 isMainModule 为 false，不会 listen）
   const serverModule = await import('../../server.mjs');
   app = serverModule.app;
+  createRateLimiter = serverModule.createRateLimiter;
 });
 
 // 每个测试前清理测试文件
@@ -31,6 +33,44 @@ beforeEach(() => {
       fs.unlinkSync(filePath);
     }
   }
+});
+
+describe('API 请求频率限制', () => {
+  it('超过窗口内请求上限时返回 429，并在窗口过期后恢复', () => {
+    let currentTime = 1_000;
+    const limiter = createRateLimiter({ windowMs: 10_000, max: 2, now: () => currentTime });
+    const makeResponse = () => {
+      const response = {
+        headers: {},
+        statusCode: 200,
+        body: null,
+        set(name, value) { this.headers[name] = value; return this; },
+        status(code) { this.statusCode = code; return this; },
+        json(body) { this.body = body; return this; },
+      };
+      return response;
+    };
+    const req = { ip: '192.0.2.1' };
+    const next = vi.fn();
+
+    const first = makeResponse();
+    limiter(req, first, next);
+    const second = makeResponse();
+    limiter(req, second, next);
+    const blocked = makeResponse();
+    limiter(req, blocked, next);
+
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.body.success).toBe(false);
+    expect(blocked.headers['Retry-After']).toBeDefined();
+
+    currentTime += 10_001;
+    const afterReset = makeResponse();
+    limiter(req, afterReset, next);
+    expect(afterReset.statusCode).toBe(200);
+    expect(next).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('GET /api/health', () => {
