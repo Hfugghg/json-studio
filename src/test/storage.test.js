@@ -37,6 +37,27 @@ describe('storage.js - normalizeName 行为（通过 createFile 后缀）', () =
   });
 });
 
+describe('storage.js - backend cache refresh', () => {
+  it('rechecks the backend after the cache expires', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, status: 'running' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { detectMode } = await import('../storage.js');
+      await expect(detectMode()).resolves.toBe('local');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(15_001);
+      await expect(detectMode()).resolves.toBe('server');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('backend unavailable'))));
+    }
+  });
+});
+
 describe('storage.js - byteSize（通过 listFiles 返回的 size）', () => {
   it('ASCII 内容的字节数等于字符长度', async () => {
     const { createFile, listFiles } = await import('../storage.js');
