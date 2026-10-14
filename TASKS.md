@@ -85,10 +85,9 @@
   - 修复: 已用 useMemo 缓存 codeLines
   - 状态: ✅ 已完成
 
-- [ ] **H12** · App.jsx 774 行职责过载
+- [ ] **H12** · App.jsx 职责仍然过载
   - 文件: `src/App.jsx`
-  - 修复: 抽取 useJSONParser / useFileSync / useScrollSync / useFileStorage / useHiddenKeys
-  - 状态: ⬜ 待处理
+  - 进展: 已将双向滚动同步抽取为 `src/useScrollSync.js`，路径映射独立为 `src/scrollSync.js`；解析器与文件管理 hook 仍待拆分
 
 - [x] **H13** · 无 React ErrorBoundary
   - 文件: `src/main.jsx`
@@ -114,8 +113,8 @@
   - 修复: 已添加 useEffect 清理
 - [x] **M5** · scrollend 无 fallback，旧浏览器工具栏收起失效
   - 修复: 已添加特性检测 + scroll 事件节流回退
-- [ ] **M6** · 零可访问性（ARIA/键盘/屏幕阅读器）
-  - 进展: 树形视图增加 tree/treeitem 语义、分支键盘折叠/展开与编辑输入标签；仍需继续完善焦点管理和其余控件
+- [ ] **M6** · 可访问性仍需完善（ARIA/键盘/屏幕阅读器）
+  - 进展: 树形视图已增加 tree/treeitem 语义、方向键折叠/展开、动作按钮标签与菜单语义；文件弹窗支持 Escape 关闭。完整焦点陷阱、焦点恢复与全站键盘路径仍待完善
 - [x] **M7** · 无 TypeScript、无测试、无 CI/CD
   - 修复: 已配置 Vitest + React Testing Library，61 个测试通过
 - [x] **M8** · getPanelPosition 无 resize 监听
@@ -123,12 +122,14 @@
 - [x] **M9** · prompt()/confirm() 阻塞 API
   - 修复: 新建文件与删除文件改用应用内对话框，并补充交互测试
 - [ ] **M10** · 硬编码魔法值（端口、行高、颜色、SAMPLE_JSON）
+  - 进展: 文件服务端口已可通过 `JSON_STUDIO_PORT` 配置，Vite 代理同步使用该值；行高按计算样式读取，仍需统一剩余常量
 - [ ] **M11** · @types/react 对纯 JSX 项目无价值
 - [x] **M12** · 未引用资产（hero.png, react.svg, vite.svg）
   - 修复: 已删除
 - [x] **M13** · Express 缺少错误处理中间件
   - 修复: 已添加 404 处理 + 全局错误中间件
 - [ ] **M14** · 无 HTTPS/HSTS
+  - 进展: 文件服务和 Vite 开发服务器默认只监听 `127.0.0.1`，README 明确警告不要在不可信网络中暴露无认证 API；远程部署仍需独立的 TLS/认证方案
 - [x] **M15** · content 字段无大小/类型校验
   - 修复: 已添加 validateContent 中间件
 - [x] **M16** · scrollTreeToLine 每帧 O(n) DOM 查询
@@ -144,12 +145,15 @@
 
 ## 🟢 LOW（6 项）
 
-- [ ] **L1** · 单一响应式断点
+- [x] **L1** · 单一响应式断点
+  - 修复: 已有 900px 与 480px 两级响应式断点，覆盖平板/手机布局
 - [x] **L2** · server.mjs 中 spawn 未使用
   - 修复: 已移除 spawn 导入
 - [ ] **L3** · 硬编码中文 UI 无国际化
-- [ ] **L4** · docs 构建产物提交策略
-- [ ] **L5** · LICENSE 版权声明检查
+- [x] **L4** · docs 构建产物提交策略
+  - 说明: GitHub Pages 从 main 分支 `/docs` 发布，README 已记录 `npm run build:pages` 后提交构建产物的流程
+- [x] **L5** · LICENSE 版权声明检查
+  - 检查: 仓库包含标准 MIT License，版权年份与仓库当前维护年份一致
 - [x] **L6** · 无 React ErrorBoundary（重复 H13）
   - 修复: 已随 H13 完成
 
