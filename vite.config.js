@@ -1,6 +1,12 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+const DEFAULT_API_PORT = 3001
+const configuredApiPort = Number.parseInt(process.env.JSON_STUDIO_PORT || String(DEFAULT_API_PORT), 10)
+const apiPort = Number.isInteger(configuredApiPort) && configuredApiPort > 0 && configuredApiPort <= 65535
+  ? configuredApiPort
+  : DEFAULT_API_PORT
+
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
   // 线上部署在 GitHub Pages 的子路径下（https://<user>.github.io/json-studio/），
@@ -13,7 +19,7 @@ export default defineConfig(({ command }) => ({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: `http://127.0.0.1:${apiPort}`,
         changeOrigin: true,
       },
     },
