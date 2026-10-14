@@ -90,7 +90,7 @@ function isSafeFileName(name) {
 }
 // 内容字段校验中间件（用于保存/新建）
 function validateContent(req, res, next) {
-  if (typeof req.body.content !== 'string') {
+  if (!req.body || typeof req.body.content !== 'string') {
     return res.status(400).json({ success: false, error: '内容格式错误' });
   }
   if (req.body.content.length > 5 * 1024 * 1024) {
