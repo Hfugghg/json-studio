@@ -474,8 +474,9 @@ describe('移动端交互回归', () => {
     render(<App />);
     const textarea = document.querySelector('.code-input');
 
-    fireEvent.scroll(textarea, { target: { scrollTop: 150 } });
-    fireEvent.scrollEnd?.(textarea);
+    textarea.scrollTop = 150;
+    fireEvent.scroll(textarea);
+    fireEvent(textarea, new Event('scrollend', { bubbles: true }));
 
     await waitFor(() => {
       expect(document.querySelector('.file-panel')).toHaveClass('file-panel-hidden');
