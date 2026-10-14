@@ -5,9 +5,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# 构建产物经 artifact 直接部署，不再回写到 main；
+# 只需要读取仓库 + 部署 Pages 的权限。
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
+# 发布串行执行：同一时间只保留一个，正在进行的发布不被打断，
+# 避免快速连续 push 时多个部署互相抢锁（历史上的部署卡死即源于此）。
 concurrency:
   group: github-pages-main
   cancel-in-progress: false
@@ -15,12 +21,12 @@ concurrency:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Check out main
         uses: actions/checkout@v4
-        with:
-          ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -34,14 +40,14 @@ jobs:
       - name: Build GitHub Pages site
         run: npm run build:pages
 
-      - name: Commit updated static site
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs
-          if git diff --cached --quiet; then
-            echo "GitHub Pages output is already up to date."
-            exit 0
-          fi
-          git commit -m "build: refresh GitHub Pages"
-          git push origin HEAD:main
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

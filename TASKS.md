@@ -151,7 +151,7 @@
   - 修复: 已移除 spawn 导入
 - [ ] **L3** · 硬编码中文 UI 无国际化
 - [x] **L4** · docs 构建产物提交策略
-  - 说明: GitHub Pages 从 main 分支 `/docs` 发布，README 已记录 `npm run build:pages` 后提交构建产物的流程
+  - 说明: 发布已切换为 GitHub Actions 原生部署（构建 artifact 后由 deploy-pages 直接发布），`docs/` 构建产物不再入库，README 已同步更新流程
 - [x] **L5** · LICENSE 版权声明检查
   - 检查: 仓库包含标准 MIT License，版权年份与仓库当前维护年份一致
 - [x] **L6** · 无 React ErrorBoundary（重复 H13）

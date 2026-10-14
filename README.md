@@ -117,7 +117,7 @@ npm start
 │   └── postbuild-pages.mjs   # Pages 构建后处理
 ├── public/            # 静态资源
 ├── json-files/        # 本地 JSON 文件存放目录（不入库）
-└── docs/              # GitHub Pages 构建产物（由脚本生成，请勿手改）
+└── docs/              # npm run build:pages 的构建产物（不入库，发布由 Actions 完成）
 ```
 
 ### 存储适配层
@@ -131,14 +131,9 @@ npm start
 
 ## 部署到 GitHub Pages
 
-```bash
-npm run build:pages
-git add docs
-git commit -m "build: 更新 Pages 产物"
-git push
-```
+发布是全自动的：推送到 `main` 后，`.github/workflows/pages.yml` 会执行 `npm run build:pages`，并把 `docs/` 构建产物直接部署到 GitHub Pages（仓库的发布源为 **GitHub Actions**）。构建产物不再提交回仓库，也不依赖分支上的 `docs/` 文件夹。
 
-构建产物输出到 `docs/` 目录，仓库设置里 Pages 的来源选 **main 分支的 `/docs` 文件夹** 即可。
+需要手动重新发布时，在 Actions 页面运行 **Publish GitHub Pages** 工作流（`workflow_dispatch`）即可。
 
 `vite.config.js` 里的 `base` 已按仓库名设为 `/json-studio/`。**如果你 fork 后改了仓库名，记得同步改这里**，否则线上会白屏（资源全部 404）。
 
