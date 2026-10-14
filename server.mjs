@@ -27,9 +27,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '5mb' }));
-
-// 轻量级 API 频率限制：保护本地文件服务免受意外循环请求与简单滥用。
+// 轻量级 API 频率限制：在解析请求体之前执行，减少重复大请求消耗的资源。
 export function createRateLimiter({ windowMs = 60_000, max = 180, now = Date.now } = {}) {
   const clients = new Map();
 
@@ -64,6 +62,7 @@ export function createRateLimiter({ windowMs = 60_000, max = 180, now = Date.now
 }
 
 app.use('/api/files', createRateLimiter());
+app.use(express.json({ limit: '5mb' }));
 
 // ===== 全局错误守护 =====
 process.on('uncaughtException', (err) => {
