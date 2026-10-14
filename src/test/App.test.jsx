@@ -483,17 +483,19 @@ describe('移动端交互回归', () => {
     }, { timeout: 1000 });
   });
 
-  it('双击树形视图的长字符串后，编辑框会随内容长度扩展', async () => {
+  it('双击树形视图后，长文本编辑框不会被 48 字符的固定上限截住', async () => {
     render(<App />);
     const value = await screen.findByText('"万能 JSON 编辑器"');
     fireEvent.doubleClick(value);
 
     const input = await screen.findByRole('textbox', { name: '编辑字符串值' });
-    fireEvent.change(input, { target: { value: 'a'.repeat(30) } });
+    const longText = 'a'.repeat(72);
+    fireEvent.change(input, { target: { value: longText } });
 
     await waitFor(() => {
-      expect(input.style.width).toBe('32ch');
-      expect(input.style.maxWidth).toBe('min(70vw, 420px)');
+      expect(input).toHaveAttribute('size', '73');
+      expect(input.style.width).toBe('');
+      expect(input.style.maxWidth).toBe('');
     });
   });
 });
