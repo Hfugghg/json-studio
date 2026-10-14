@@ -13,21 +13,26 @@ const VIEW_MODES = ['code', 'split', 'tree'];
 // null = 尚未探测；true = 服务端；false = 浏览器本地存储
 let backendReady = null;
 
-// 探测服务端是否可用，结果会被缓存，整个会话只真正请求一次
+// 短暂缓存探测结果，避免每次操作都请求健康检查；过期后重新探测以适应服务状态变化。
 export async function detectMode() {
-  if (backendReady !== null) return backendReady ? 'server' : 'local';
+  const now = Date.now();
+  if (backendReady !== null && now - backendCheckedAt < MODE_CACHE_TTL) {
+    return backendReady ? 'server' : 'local';
+  }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
     const res = await fetch(`${API}/health`, { signal: controller.signal });
-    clearTimeout(timer);
     // 静态托管对 /api/health 也可能返回 200 的 index.html，
     // 所以必须确认响应体确实是我们的接口，不能只看状态码。
     const data = res.ok ? await res.json().catch(() => null) : null;
     backendReady = data?.success === true && data?.status === 'running';
   } catch {
     backendReady = false;
+  } finally {
+    clearTimeout(timer);
+    backendCheckedAt = Date.now();
   }
 
   return backendReady ? 'server' : 'local';
