@@ -92,7 +92,7 @@ describe('App - 文件对话框', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /新建/ }));
     fireEvent.change(screen.getByLabelText('文件名'), { target: { value: 'my-config' } });
-    fireEvent.submit(screen.getByRole('dialog', { name: '新建 JSON 文件' }).querySelector('form'));
+    fireEvent.submit(screen.getByRole('dialog', { name: '新建 JSON 文件' }));
 
     await waitFor(() => {
       const store = JSON.parse(localStorage.getItem('json-editor-files') || '{}');
