@@ -229,6 +229,15 @@ describe('请求错误处理', () => {
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ success: false, error: '请求 JSON 格式错误' });
   });
+
+  it('缺少 JSON 请求体时返回 400 而不是服务器错误', async () => {
+    const res = await request(app)
+      .post('/api/files/missing-body.json')
+      .set('Content-Type', 'text/plain')
+      .send('not-json');
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ success: false, error: '内容格式错误' });
+  });
 });
 
 describe('未知路由', () => {
