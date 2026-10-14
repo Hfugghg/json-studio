@@ -879,9 +879,8 @@ function App() {
     const serializedPath = findClosestPathForLine(pathLineMap, line);
     if (serializedPath === null) return;
     const treeViewport = treeViewportRef.current;
-    const targetNode = Array.from(treeViewport.querySelectorAll('[data-path]'))
-      .find((node) => node.dataset.path === serializedPath);
-    if (!targetNode) return;
+    const targetNode = document.getElementById(`tree-path-${encodeURIComponent(serializedPath)}`);
+    if (!targetNode || !treeViewport.contains(targetNode)) return;
 
     const treeRect = treeViewport.getBoundingClientRect();
     const nodeRect = targetNode.getBoundingClientRect();
