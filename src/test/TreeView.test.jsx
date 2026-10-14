@@ -160,7 +160,9 @@ describe('TreeView - 添加子节点', () => {
     const addButtons = document.querySelectorAll('.add-btn');
     expect(addButtons.length).toBeGreaterThan(0);
     fireEvent.click(addButtons[0]);
-    // 添加菜单应出现
+    // 添加菜单应出现，且菜单项有可供辅助技术识别的语义
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(6);
     expect(screen.getByText('string')).toBeInTheDocument();
     expect(screen.getByText('number')).toBeInTheDocument();
     expect(screen.getByText('boolean')).toBeInTheDocument();
