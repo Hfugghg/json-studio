@@ -77,6 +77,25 @@ describe('TreeView - 折叠/展开', () => {
   });
 });
 
+describe('TreeView - 键盘可访问性', () => {
+  it('分支支持方向键折叠与展开', () => {
+    render(<TreeView data={{ nested: { value: 1 } }} hiddenKeys={[]} />);
+    const root = screen.getByRole('treeitem', { name: /根节点/ });
+    expect(root).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(root, { key: 'ArrowLeft' });
+    expect(root).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.keyDown(root, { key: 'ArrowRight' });
+    expect(root).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('树形容器具有可供辅助技术识别的名称', () => {
+    render(<TreeView data={{ a: 1 }} hiddenKeys={[]} />);
+    expect(screen.getByRole('tree', { name: 'JSON 树形视图' })).toBeInTheDocument();
+  });
+});
+
 describe('TreeView - 双击编辑值', () => {
   it('双击叶子值进入编辑模式', () => {
     const onEdit = vi.fn();
@@ -92,6 +111,21 @@ describe('TreeView - 双击编辑值', () => {
     // 编辑模式应出现 input
     const input = document.querySelector('.inline-input');
     expect(input).toBeInTheDocument();
+  });
+});
+
+describe('TreeView - 数字编辑校验', () => {
+  it('清空数字编辑框后不会静默把值改成 0', () => {
+    const onEdit = vi.fn();
+    render(<TreeView data={{ count: 42 }} hiddenKeys={[]} onEdit={onEdit} />);
+    fireEvent.doubleClick(screen.getByText('42'));
+    const input = document.querySelector('input.inline-input.number');
+    expect(input).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+
+    expect(onEdit).not.toHaveBeenCalled();
   });
 });
 
