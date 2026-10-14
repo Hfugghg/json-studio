@@ -151,9 +151,6 @@ app.post('/api/files', validateContent, async (req, res) => {
     if (!isSafeFileName(fileName)) {
       return res.status(403).json({ success: false, error: '非法文件名' });
     }
-    if (!isSafeFileName(fileName)) {
-      return res.status(403).json({ success: false, error: '非法文件名' });
-    }
     const filePath = path.join(JSON_DIR, fileName);
     // 排他创建：wx 标志确保文件不存在时才写入，避免 TOCTOU 竞态
     const handle = await fs.promises.open(filePath, 'wx');
