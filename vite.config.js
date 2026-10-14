@@ -8,7 +8,8 @@ export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/json-studio/' : '/',
   plugins: [react()],
   server: {
-    host: '0.0.0.0',  // 监听所有网络接口，允许局域网访问
+    // 默认仅允许本机访问，避免开发代理将本地文件 API 暴露给局域网。
+    host: process.env.JSON_STUDIO_DEV_HOST || '127.0.0.1',
     port: 5173,
     proxy: {
       '/api': {
