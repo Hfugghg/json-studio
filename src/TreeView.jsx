@@ -81,7 +81,14 @@ function ValueEditor({ value, type, onCommit, onCancel }) {
     let parsed;
     switch (type) {
       case 'string': parsed = editValue; break;
-      case 'number': parsed = Number(editValue); if (isNaN(parsed)) parsed = 0; break;
+      case 'number':
+        // 空字符串或非有限数值不能静默变成 0，否则失焦会意外篡改 JSON。
+        if (editValue.trim() === '' || !Number.isFinite(Number(editValue))) {
+          onCancel();
+          return;
+        }
+        parsed = Number(editValue);
+        break;
       case 'boolean': parsed = editValue === 'true'; break;
       case 'null': parsed = null; break;
       default: parsed = editValue;
@@ -105,6 +112,7 @@ function ValueEditor({ value, type, onCommit, onCancel }) {
   return (
     <input ref={inputRef} className={`inline-input ${type}`}
       type={type === 'number' ? 'number' : 'text'} value={editValue}
+      aria-label={`编辑${type === 'number' ? '数字' : '字符串'}值`}
       onChange={(e) => setEditValue(e.target.value)} onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.preventDefault(); onCancel(); } }} />
   );
@@ -125,7 +133,7 @@ function KeyEditor({ value, onCommit, onCancel }) {
 
   return (
     <input ref={inputRef} className="inline-input key-input" type="text"
-      value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={commit}
+      aria-label="编辑键名" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.preventDefault(); onCancel(); } }} />
   );
 }
@@ -223,7 +231,8 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
   // --- 叶子节点 ---
   if (!isExpandable) {
     return (
-      <div className="tree-row tree-leaf" style={indentStyle} data-line={currentLine}>
+      <div className="tree-row tree-leaf" style={indentStyle} data-line={currentLine}
+        role="treeitem" tabIndex={0} aria-label={`${nodeKey === 'root' ? '根节点' : String(nodeKey)}，值类型：${type}`}>
         {isArrayItem ? null : (
           <>
             <span className="tree-key clickable" style={keyColor}
@@ -244,10 +253,10 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
             confirmHide ? (
               <HideConfirm nodeKey={nodeKey} onConfirm={handleConfirmHide} onCancel={() => setConfirmHide(false)} />
             ) : (
-              <button className="node-hide" onClick={handleHideClick} title="隐藏此键名下所有节点">👁</button>
+              <button className="node-hide" onClick={handleHideClick} title="隐藏此键名下所有节点" aria-label={`隐藏键名 ${nodeKey}`}>👁</button>
             )
           )}
-          <button className="node-delete" onClick={handleDelete} title="删除">✕</button>
+          <button className="node-delete" onClick={handleDelete} title="删除" aria-label={`删除节点 ${nodeKey}`}>✕</button>
         </div>
       </div>
     );
@@ -256,7 +265,32 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
   // --- 分支节点 ---
   return (
     <div>
-      <div className="tree-row tree-branch" style={indentStyle} data-line={currentLine} onClick={toggle}>
+      <div
+        className="tree-row tree-branch"
+        style={indentStyle}
+        data-line={currentLine}
+        role="treeitem"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        aria-label={`${nodeKey === 'root' ? '根节点' : String(nodeKey)}，${type === 'array' ? '数组' : '对象'}，${childCount} 个子项`}
+        onClick={(event) => {
+          if (event.target.closest('button, input, select')) return;
+          toggle();
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggle();
+          } else if (event.key === 'ArrowRight' && collapsed) {
+            event.preventDefault();
+            setCollapsed(false);
+          } else if (event.key === 'ArrowLeft' && !collapsed) {
+            event.preventDefault();
+            setCollapsed(true);
+          }
+        }}
+      >
         <span className={`tree-arrow ${collapsed ? '' : 'expanded'}`}>
           {collapsed ? '▶' : '▼'}
         </span>
@@ -282,11 +316,11 @@ function TreeNode({ nodeKey, value, depth, path, searchTerm, onDelete, onEdit, o
               <button className="node-hide" onClick={handleHideClick} title="隐藏此键名下所有节点">👁</button>
             )
           )}
-          <button className="node-delete" onClick={handleDelete} title="删除整个节点">✕</button>
+          <button className="node-delete" onClick={handleDelete} title="删除整个节点" aria-label={`删除节点 ${nodeKey}`}>✕</button>
         </div>
       </div>
       {!collapsed && (
-        <div className="tree-children">
+        <div className="tree-children" role="group">
           {type === 'array'
             ? value.map((item, i) => (
                 <TreeNode key={`${i}-${childCount}`} nodeKey={i} value={item} depth={depth + 1}
@@ -361,7 +395,7 @@ export default function TreeView({ data, error, hiddenKeys, searchTerm, onDelete
 
   return (
     <LineCounterContext.Provider value={allocateLine}>
-      <div className="tree-container">
+      <div className="tree-container" role="tree" aria-label="JSON 树形视图">
         <TreeNode nodeKey="root" value={data} depth={0} path={[]}
           searchTerm={searchTerm || ''}
           onDelete={onDelete} onEdit={onEdit} onAdd={onAdd} onRenameKey={onRenameKey}
