@@ -1005,7 +1005,7 @@ function App() {
 
       {/* 本地文件列表 */}
       {showFilePanel && (
-        <div className="file-panel">
+        <div className={`file-panel ${toolbarHidden ? 'file-panel-hidden' : ''}`}>
           <div className="file-panel-header">
             <span className="file-panel-title">
               📁 {storageMode === 'local' ? '浏览器存储' : 'json-files'}
