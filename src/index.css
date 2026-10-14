@@ -69,3 +69,16 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--bg-active);
 }
+
+
+/* Shared surface tokens for the dark, low-glare workspace. */
+:root {
+  --bg-panel: #171a25;
+  --bg-input: #1d2130;
+  --bg-hover: #252a3b;
+  --bg-active: #2d3347;
+  --border: #30364b;
+  --border-focus: #52649a;
+  --accent: #7b96ff;
+  --accent-hover: #9aafff;
+}
