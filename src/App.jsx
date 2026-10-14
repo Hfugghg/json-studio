@@ -139,6 +139,10 @@ function App() {
   const [toolbarHidden, setToolbarHidden] = useState(false);
   const [dragOver, setDragOver] = useState(false); // 拖放文件视觉反馈
   const treeViewportRef = useRef(null);
+  const lineNumbersRef = useRef(null);
+  const { handleEditorScroll, handleTreeScroll } = useScrollSync({
+    code, textareaRef, lineNumbersRef, treeViewportRef,
+  });
 
   // ========== 解析 JSON ==========
   const [errorLine, setErrorLine] = useState(null);
