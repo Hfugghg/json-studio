@@ -55,10 +55,10 @@
   - 修复: 已手动添加 X-Content-Type-Options / X-Frame-Options / Referrer-Policy
   - 状态: ✅ 已完成
 
-- [ ] **H6** · 双向滚动同步映射根本性错误
-  - 文件: `App.jsx:459-522`, `TreeView.jsx:155`
-  - 修复: 重新设计映射逻辑（代码行号 ↔ 树节点路径）
-  - 状态: ⬜ 待处理
+- [x] **H6** · 双向滚动同步映射根本性错误
+  - 文件: `src/App.jsx`, `src/TreeView.jsx`, `src/scrollSync.js`
+  - 修复: 通过 JSON 路径映射源码行和树节点；支持压缩/自定义缩进、嵌套数组及转义字符串；增加映射单测
+  - 状态: ✅ 已完成
 
 - [x] **H7** · handleTreeRenameKey 重命名键静默覆盖数据
   - 文件: `App.jsx:232-248`
@@ -131,7 +131,8 @@
 - [ ] **M14** · 无 HTTPS/HSTS
 - [x] **M15** · content 字段无大小/类型校验
   - 修复: 已添加 validateContent 中间件
-- [ ] **M16** · scrollTreeToLine 每帧 O(n) DOM 查询
+- [x] **M16** · scrollTreeToLine 每帧 O(n) DOM 查询
+  - 修复: 通过 JSON 路径索引定位树节点，并缓存按源码行排序的映射索引，滚动时使用二分查找
 - [ ] **M17** · detectMode 会话级缓存，后端状态变化无法自适应
 - [ ] **M18** · localStorage 存储文件内容可被同 origin 脚本读取
 - [x] **M19** · server.js 不过滤目录、不校验 name 类型
