@@ -93,15 +93,34 @@ function App() {
   // 内容一致说明上次并没有留下未保存的改动，不必打扰用户
   const [showRestoreNotice, setShowRestoreNotice] = useState(hasDraft && !initialDraftFile);
 
-  // 计算面板位置（相对于 viewport）
-  const getPanelPosition = useCallback((targetEl) => {
+  // 计算面板位置（相对于 viewport），并在空间不足时限制在可视区域内。
+  const [hiddenPanelPosition, setHiddenPanelPosition] = useState(null);
+  const getPanelPosition = useCallback(() => {
+    const targetEl = hiddenToggleRef.current;
+    if (!targetEl) return { position: 'fixed', top: '8px', right: '8px' };
     const rect = targetEl.getBoundingClientRect();
+    const panelHeight = hiddenPanelRef.current?.offsetHeight || 300;
+    const top = Math.min(rect.bottom + 6, Math.max(8, window.innerHeight - panelHeight - 8));
+    const right = Math.max(8, window.innerWidth - rect.right);
     return {
       position: 'fixed',
-      top: `${rect.bottom + 6}px`,
-      right: `${window.innerWidth - rect.right}px`,
+      top: `${top}px`,
+      right: `${right}px`,
     };
   }, []);
+
+  // 面板打开期间跟随窗口缩放与页面/容器滚动，避免触发按钮移动后面板悬空。
+  useEffect(() => {
+    if (!showHiddenPanel) return undefined;
+    const updatePosition = () => setHiddenPanelPosition(getPanelPosition());
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [showHiddenPanel, getPanelPosition, hiddenKeys.length]);
   const [status, setStatus] = useState('就绪');
   const [view, setView] = useState(() => (hasDraft ? draft.view : 'split'));
 
@@ -1025,7 +1044,7 @@ function App() {
         {/* 使用 portal 渲染下拉面板，避免被搜索栏 overflow 裁剪 */}
         {showHiddenPanel && hiddenToggleRef.current &&
           createPortal(
-            <div className="hidden-keys-panel" ref={hiddenPanelRef} style={getPanelPosition(hiddenToggleRef.current)}>
+            <div className="hidden-keys-panel" ref={hiddenPanelRef} style={hiddenPanelPosition || getPanelPosition()}>
               <div className="hidden-keys-panel-header">
                 <span>隐藏的键</span>
                 <button className="hidden-clear-all" onClick={() => { setHiddenKeys([]); setShowHiddenPanel(false); }}>全部恢复</button>
