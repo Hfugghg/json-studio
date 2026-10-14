@@ -146,10 +146,11 @@ app.post('/api/files', validateContent, async (req, res) => {
       return res.status(400).json({ success: false, error: '缺少文件名' });
     }
     name = name.trim();
-    if (!isSafeFileName(name)) {
+    // 允许用户按 UI 约定输入不带后缀的名称；校验补全后的最终文件名。
+    const fileName = name.endsWith('.json') ? name : name + '.json';
+    if (!isSafeFileName(fileName)) {
       return res.status(403).json({ success: false, error: '非法文件名' });
     }
-    const fileName = name.endsWith('.json') ? name : name + '.json';
     if (!isSafeFileName(fileName)) {
       return res.status(403).json({ success: false, error: '非法文件名' });
     }
