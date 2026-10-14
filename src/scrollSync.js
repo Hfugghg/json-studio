@@ -34,16 +34,18 @@ export function buildJsonPathLineMap(source) {
 
   const takeValuePath = () => {
     const parent = stack[stack.length - 1];
-    if (!parent) return [];
+    if (!parent) return { path: [], valueLine: line };
     if (parent.type === 'array') {
       const path = [...parent.path, parent.index];
       parent.index += 1;
-      return path;
+      return { path, valueLine: line };
     }
-    if (parent.key === null) return [...parent.path, '__invalid__'];
+    if (parent.key === null) return { path: [...parent.path, '__invalid__'], valueLine: line };
     const path = [...parent.path, parent.key];
+    const valueLine = parent.keyLine ?? line;
     parent.key = null;
-    return path;
+    parent.keyLine = null;
+    return { path, valueLine };
   };
 
   while (index < source.length) {
@@ -74,25 +76,28 @@ export function buildJsonPathLineMap(source) {
       if (source[index] === ':' && stack[stack.length - 1]?.type === 'object') {
         try {
           stack[stack.length - 1].key = JSON.parse(token);
+          stack[stack.length - 1].keyLine = tokenLine;
         } catch {
           stack[stack.length - 1].key = null;
+          stack[stack.length - 1].keyLine = tokenLine;
         }
         index += 1;
         continue;
       }
 
-      const path = takeValuePath();
-      lines.set(JSON.stringify(path), tokenLine);
+      const { path, valueLine } = takeValuePath();
+      lines.set(JSON.stringify(path), valueLine);
       continue;
     }
 
     if (char === '{' || char === '[') {
-      const path = takeValuePath();
-      lines.set(JSON.stringify(path), line);
+      const { path, valueLine } = takeValuePath();
+      lines.set(JSON.stringify(path), valueLine);
       stack.push({
         type: char === '{' ? 'object' : 'array',
         path,
         key: null,
+        keyLine: null,
         index: 0,
       });
       index += 1;
@@ -102,8 +107,8 @@ export function buildJsonPathLineMap(source) {
     const tokenLine = line;
     while (index < source.length && !/[\s,}\]]/.test(source[index])) index += 1;
     if (index > 0) {
-      const path = takeValuePath();
-      lines.set(JSON.stringify(path), tokenLine);
+      const { path, valueLine } = takeValuePath();
+      lines.set(JSON.stringify(path), valueLine);
     }
   }
 
