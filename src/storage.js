@@ -12,6 +12,8 @@ const VIEW_MODES = ['code', 'split', 'tree'];
 
 // null = 尚未探测；true = 服务端；false = 浏览器本地存储
 let backendReady = null;
+let backendCheckedAt = 0;
+const MODE_CACHE_TTL = 15_000;
 
 // 短暂缓存探测结果，避免每次操作都请求健康检查；过期后重新探测以适应服务状态变化。
 export async function detectMode() {
