@@ -32,15 +32,15 @@ export function buildJsonPathLineMap(source) {
     return source.slice(start, index);
   };
 
-  const takeValuePath = () => {
+  const takeValuePath = (sourceValueLine = line) => {
     const parent = stack[stack.length - 1];
-    if (!parent) return { path: [], valueLine: line };
+    if (!parent) return { path: [], valueLine: sourceValueLine };
     if (parent.type === 'array') {
       const path = [...parent.path, parent.index];
       parent.index += 1;
-      return { path, valueLine: line };
+      return { path, valueLine: sourceValueLine };
     }
-    if (parent.key === null) return { path: [...parent.path, '__invalid__'], valueLine: line };
+    if (parent.key === null) return { path: [...parent.path, '__invalid__'], valueLine: sourceValueLine };
     const path = [...parent.path, parent.key];
     const valueLine = parent.keyLine ?? line;
     parent.key = null;
@@ -85,7 +85,7 @@ export function buildJsonPathLineMap(source) {
         continue;
       }
 
-      const { path, valueLine } = takeValuePath();
+      const { path, valueLine } = takeValuePath(tokenLine);
       lines.set(JSON.stringify(path), valueLine);
       continue;
     }
@@ -107,7 +107,7 @@ export function buildJsonPathLineMap(source) {
     const tokenLine = line;
     while (index < source.length && !/[\s,}\]]/.test(source[index])) index += 1;
     if (index > 0) {
-      const { path, valueLine } = takeValuePath();
+      const { path, valueLine } = takeValuePath(tokenLine);
       lines.set(JSON.stringify(path), valueLine);
     }
   }
