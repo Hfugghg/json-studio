@@ -6,6 +6,7 @@ import {
   loadDraft, saveDraft,
 } from './storage';
 import { diffLines } from './diff';
+import useScrollSync from './useScrollSync';
 import './App.css';
 
 // 草稿落盘的防抖时长：停顿约半秒就把当前内容写进 localStorage，
@@ -82,6 +83,22 @@ function App() {
   const [currentFile, setCurrentFile] = useState(initialDraftFile);
   const [showFilePanel, setShowFilePanel] = useState(true);
   const [fileLoading, setFileLoading] = useState(false);
+  const [showNewFileDialog, setShowNewFileDialog] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [pendingDeleteFile, setPendingDeleteFile] = useState(null);
+
+  useEffect(() => {
+    if (!showNewFileDialog && !pendingDeleteFile) return undefined;
+    const handleDialogKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setShowNewFileDialog(false);
+        setPendingDeleteFile(null);
+      }
+    };
+    window.addEventListener('keydown', handleDialogKeyDown);
+    return () => window.removeEventListener('keydown', handleDialogKeyDown);
+  }, [showNewFileDialog, pendingDeleteFile]);
+
   // 'server' = 本地 Express 服务（json-files 目录）；'local' = 浏览器 localStorage
   const [storageMode, setStorageMode] = useState(null);
   // currentFile 在磁盘 / 浏览器存储里的那份内容，用来判断编辑器里是否有未保存的改动
@@ -90,15 +107,34 @@ function App() {
   // 内容一致说明上次并没有留下未保存的改动，不必打扰用户
   const [showRestoreNotice, setShowRestoreNotice] = useState(hasDraft && !initialDraftFile);
 
-  // 计算面板位置（相对于 viewport）
-  const getPanelPosition = useCallback((targetEl) => {
+  // 计算面板位置（相对于 viewport），并在空间不足时限制在可视区域内。
+  const [hiddenPanelPosition, setHiddenPanelPosition] = useState(null);
+  const getPanelPosition = useCallback(() => {
+    const targetEl = hiddenToggleRef.current;
+    if (!targetEl) return { position: 'fixed', top: '8px', right: '8px' };
     const rect = targetEl.getBoundingClientRect();
+    const panelHeight = hiddenPanelRef.current?.offsetHeight || 300;
+    const top = Math.min(rect.bottom + 6, Math.max(8, window.innerHeight - panelHeight - 8));
+    const right = Math.max(8, window.innerWidth - rect.right);
     return {
       position: 'fixed',
-      top: `${rect.bottom + 6}px`,
-      right: `${window.innerWidth - rect.right}px`,
+      top: `${top}px`,
+      right: `${right}px`,
     };
   }, []);
+
+  // 面板打开期间跟随窗口缩放与页面/容器滚动，避免触发按钮移动后面板悬空。
+  useEffect(() => {
+    if (!showHiddenPanel) return undefined;
+    const updatePosition = () => setHiddenPanelPosition(getPanelPosition());
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [showHiddenPanel, getPanelPosition, hiddenKeys.length]);
   const [status, setStatus] = useState('就绪');
   const [view, setView] = useState(() => (hasDraft ? draft.view : 'split'));
 
@@ -116,6 +152,10 @@ function App() {
   const [toolbarHidden, setToolbarHidden] = useState(false);
   const [dragOver, setDragOver] = useState(false); // 拖放文件视觉反馈
   const treeViewportRef = useRef(null);
+  const lineNumbersRef = useRef(null);
+  const { handleEditorScroll, handleTreeScroll } = useScrollSync({
+    code, textareaRef, lineNumbersRef, treeViewportRef,
+  });
 
   // ========== 解析 JSON ==========
   const [errorLine, setErrorLine] = useState(null);
@@ -718,33 +758,46 @@ function App() {
     }
   }, [currentFile, code, handleDownload, fetchFileList]);
 
-  const handleNewFile = useCallback(async () => {
-    const name = prompt('请输入新文件名（无需 .json 后缀）');
-    if (!name || !name.trim()) return;
+  const handleNewFile = useCallback(() => {
+    setNewFileName('');
+    setShowNewFileDialog(true);
+  }, []);
+
+  const handleCreateFile = useCallback(async (event) => {
+    event.preventDefault();
+    const name = newFileName.trim();
+    if (!name) return;
     try {
-      const created = await createFile(name.trim(), '{\n  \n}');
+      const created = await createFile(name, '{\n  \n}');
+      setShowNewFileDialog(false);
       await fetchFileList();
-      handleLoadFile(created);
+      await handleLoadFile(created);
       setStatus(`✓ 已创建 ${created}`);
     } catch (e) {
       setStatus('✕ 创建失败: ' + e.message);
     }
-  }, [fetchFileList, handleLoadFile]);
+  }, [newFileName, fetchFileList, handleLoadFile]);
 
-  const handleDeleteFile = useCallback(async (fileName) => {
-    if (!confirm(`确定要删除 ${fileName} 吗？`)) return;
+  const handleDeleteFile = useCallback((fileName) => {
+    setPendingDeleteFile(fileName);
+  }, []);
+
+  const confirmDeleteFile = useCallback(async () => {
+    const fileName = pendingDeleteFile;
+    if (!fileName) return;
     try {
       await deleteFile(fileName);
       if (currentFile === fileName) {
         setCurrentFile(null);
         setSavedCode(null);
       }
+      setPendingDeleteFile(null);
       await fetchFileList();
       setStatus(`✓ 已删除 ${fileName}`);
     } catch (e) {
       setStatus('✕ 删除失败: ' + e.message);
     }
-  }, [currentFile, fetchFileList]);
+  }, [pendingDeleteFile, currentFile, fetchFileList]);
 
   // ========== 隐藏/恢复键 ==========
   const hideKey = useCallback((key) => {
@@ -817,84 +870,6 @@ function App() {
       scrollTimers.clear();
     };
   }, [handleScroll, supportsScrollEnd]);
-
-  // 行号与代码同步滚动
-  const lineNumbersRef = useRef(null);
-  const isScrollingRef = useRef(false); // 防止循环触发
-
-  // 动态获取代码区行高（避免硬编码与 CSS 不一致）（M1）
-  const getLineHeight = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return 21.45; // 回退默认值：13px * 1.65
-    const lh = parseFloat(window.getComputedStyle(ta).lineHeight);
-    return isNaN(lh) || lh === 0 ? 21.45 : lh;
-  }, []);
-
-  // 获取代码区第一个可见行号
-  const getFirstVisibleLine = useCallback((textarea) => {
-    return Math.floor(textarea.scrollTop / getLineHeight()) + 1;
-  }, [getLineHeight]);
-
-  // 滚动树形视图到指定行对应的节点
-  const scrollTreeToLine = useCallback((line) => {
-    if (!treeViewportRef.current) return;
-    const treeViewport = treeViewportRef.current;
-    const nodes = treeViewport.querySelectorAll('[data-line]');
-    let targetNode = null;
-    for (const node of nodes) {
-      const nodeLine = parseInt(node.dataset.line, 10);
-      if (nodeLine <= line) {
-        targetNode = node;
-      } else {
-        break;
-      }
-    }
-    if (targetNode) {
-      const treeRect = treeViewport.getBoundingClientRect();
-      const nodeRect = targetNode.getBoundingClientRect();
-      const offset = nodeRect.top - treeRect.top + treeViewport.scrollTop - 8;
-      treeViewport.scrollTop = Math.max(0, offset);
-    }
-  }, []);
-
-  const handleEditorScroll = useCallback((e) => {
-    // 行号同步
-    if (lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = e.target.scrollTop;
-    }
-    // 树形视图同步滚动（分屏模式下，用行号对应同步）
-    if (treeViewportRef.current && !isScrollingRef.current) {
-      isScrollingRef.current = true;
-      const line = getFirstVisibleLine(e.target);
-      scrollTreeToLine(line);
-      requestAnimationFrame(() => { isScrollingRef.current = false; });
-    }
-  }, [getFirstVisibleLine, scrollTreeToLine]);
-
-  const handleTreeScroll = useCallback((e) => {
-    const textarea = textareaRef.current;
-    if (textarea && !isScrollingRef.current) {
-      isScrollingRef.current = true;
-      // 获取树形视图中第一个可见节点对应的行号
-      const treeViewport = e.target;
-      const nodes = treeViewport.querySelectorAll('[data-line]');
-      const treeRect = treeViewport.getBoundingClientRect();
-      let firstVisibleLine = 1;
-      for (const node of nodes) {
-        const nodeRect = node.getBoundingClientRect();
-        if (nodeRect.top > treeRect.top) {
-          firstVisibleLine = parseInt(node.dataset.line, 10) || 1;
-          break;
-        }
-      }
-      // 滚动代码区到对应行
-      textarea.scrollTop = (firstVisibleLine - 1) * getLineHeight();
-      if (lineNumbersRef.current) {
-        lineNumbersRef.current.scrollTop = textarea.scrollTop;
-      }
-      requestAnimationFrame(() => { isScrollingRef.current = false; });
-    }
-  }, [getLineHeight]);
 
   // ========== 代码编辑 ==========
   const handleCodeChange = useCallback((e) => {
@@ -1009,7 +984,7 @@ function App() {
         {/* 使用 portal 渲染下拉面板，避免被搜索栏 overflow 裁剪 */}
         {showHiddenPanel && hiddenToggleRef.current &&
           createPortal(
-            <div className="hidden-keys-panel" ref={hiddenPanelRef} style={getPanelPosition(hiddenToggleRef.current)}>
+            <div className="hidden-keys-panel" ref={hiddenPanelRef} style={hiddenPanelPosition || getPanelPosition()}>
               <div className="hidden-keys-panel-header">
                 <span>隐藏的键</span>
                 <button className="hidden-clear-all" onClick={() => { setHiddenKeys([]); setShowHiddenPanel(false); }}>全部恢复</button>
@@ -1092,6 +1067,47 @@ function App() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {showNewFileDialog && (
+        <div className="dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setShowNewFileDialog(false);
+        }}>
+          <form className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="new-file-title" onSubmit={handleCreateFile}>
+            <h2 id="new-file-title">新建 JSON 文件</h2>
+            <label htmlFor="new-file-name">文件名</label>
+            <input
+              id="new-file-name"
+              className="dialog-input"
+              value={newFileName}
+              onChange={(event) => setNewFileName(event.target.value)}
+              placeholder="例如 config（无需 .json 后缀）"
+              autoFocus
+              required
+              maxLength={120}
+            />
+            <p className="dialog-hint">文件将以 .json 为后缀保存。</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn" onClick={() => setShowNewFileDialog(false)}>取消</button>
+              <button type="submit" className="btn btn-primary" disabled={!newFileName.trim()}>创建</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {pendingDeleteFile && (
+        <div className="dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setPendingDeleteFile(null);
+        }}>
+          <section className="app-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-file-title" aria-describedby="delete-file-description">
+            <h2 id="delete-file-title">删除文件？</h2>
+            <p id="delete-file-description">确定要删除 <strong>{pendingDeleteFile}</strong> 吗？此操作无法撤销。</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn" autoFocus onClick={() => setPendingDeleteFile(null)}>取消</button>
+              <button type="button" className="btn btn-danger" onClick={confirmDeleteFile}>删除</button>
+            </div>
+          </section>
         </div>
       )}
 

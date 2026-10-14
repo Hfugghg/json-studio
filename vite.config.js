@@ -1,24 +1,34 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+const DEFAULT_API_PORT = 3001
+
 // https://vite.dev/config/
-export default defineConfig(({ command }) => ({
-  // 线上部署在 GitHub Pages 的子路径下（https://<user>.github.io/json-studio/），
-  // 构建时必须指定 base，否则 JS/CSS 会以根路径请求而 404。开发服务器仍用根路径。
-  base: command === 'build' ? '/json-studio/' : '/',
-  plugins: [react()],
-  server: {
-    host: '0.0.0.0',  // 监听所有网络接口，允许局域网访问
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
+export default defineConfig(({ command }) => {
+  const configuredApiPort = Number.parseInt(process.env.JSON_STUDIO_PORT || String(DEFAULT_API_PORT), 10)
+  const apiPort = Number.isInteger(configuredApiPort) && configuredApiPort > 0 && configuredApiPort <= 65535
+    ? configuredApiPort
+    : DEFAULT_API_PORT
+
+  return {
+    // 线上部署在 GitHub Pages 的子路径下（https://<user>.github.io/json-studio/），
+    // 构建时必须指定 base，否则 JS/CSS 会以根路径请求而 404。开发服务器仍用根路径。
+    base: command === 'build' ? '/json-studio/' : '/',
+    plugins: [react()],
+    server: {
+      // 默认仅允许本机访问，避免开发代理将本地文件 API 暴露给局域网。
+      host: process.env.JSON_STUDIO_DEV_HOST || '127.0.0.1',
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: `http://127.0.0.1:${apiPort}`,
+          changeOrigin: true,
+        },
+      },
+      // 忽略 json-files 文件夹的文件变化监听，避免 EBUSY 崩溃
+      watch: {
+        ignored: ['**/json-files/**'],
       },
     },
-    // 忽略 json-files 文件夹的文件变化监听，避免 EBUSY 崩溃
-    watch: {
-      ignored: ['**/json-files/**'],
-    },
-  },
-}))
+  }
+})

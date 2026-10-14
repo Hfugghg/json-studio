@@ -74,6 +74,63 @@ describe('App 组件渲染', () => {
   });
 });
 
+describe('App - 文件对话框', () => {
+  it('新建文件使用应用内弹窗，不调用浏览器 prompt', () => {
+    const promptSpy = vi.spyOn(window, 'prompt');
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /新建/ }));
+
+    expect(screen.getByRole('dialog', { name: '新建 JSON 文件' })).toBeInTheDocument();
+    expect(screen.getByLabelText('文件名')).toBeInTheDocument();
+    expect(promptSpy).not.toHaveBeenCalled();
+    promptSpy.mockRestore();
+  });
+
+  it('按 Escape 可以关闭文件对话框', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /新建/ }));
+    expect(screen.getByRole('dialog', { name: '新建 JSON 文件' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: '新建 JSON 文件' })).not.toBeInTheDocument();
+  });
+
+  it('可以通过应用内弹窗创建并打开 JSON 文件', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /新建/ }));
+    fireEvent.change(screen.getByLabelText('文件名'), { target: { value: 'my-config' } });
+    fireEvent.submit(screen.getByRole('dialog', { name: '新建 JSON 文件' }));
+
+    await waitFor(() => {
+      const store = JSON.parse(localStorage.getItem('json-editor-files') || '{}');
+      expect(store['my-config.json']).toBeDefined();
+    });
+    await waitFor(() => {
+      expect(document.querySelector('.code-input').value).toBe('{\n  \n}');
+    });
+    expect(screen.queryByRole('dialog', { name: '新建 JSON 文件' })).not.toBeInTheDocument();
+  });
+
+  it('删除文件前显示应用内确认弹窗，取消不会删除文件', async () => {
+    localStorage.setItem('json-editor-files', JSON.stringify({
+      'keep-me.json': { content: '{}', modified: new Date().toISOString() },
+    }));
+    render(<App />);
+
+    await waitFor(() => expect(document.querySelector('.file-item-delete')).toBeInTheDocument());
+    fireEvent.click(document.querySelector('.file-item-delete'));
+
+    expect(screen.getByRole('alertdialog', { name: '删除文件？' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    expect(JSON.parse(localStorage.getItem('json-editor-files'))['keep-me.json']).toBeDefined();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
 describe('App - 格式化按钮', () => {
   it('点击格式化按钮美化 JSON', async () => {
     render(<App />);
@@ -237,6 +294,19 @@ describe('App - 视图切换', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '代码' }));
     expect(document.querySelector('.code-input')).toBeInTheDocument();
+  });
+});
+
+describe('App - 滚动同步', () => {
+  it('代码区滚动时同步行号区域的位置', () => {
+    render(<App />);
+    const textarea = document.querySelector('.code-input');
+    const lineNumbers = document.querySelector('.line-numbers');
+    textarea.scrollTop = 64;
+
+    fireEvent.scroll(textarea);
+
+    expect(lineNumbers.scrollTop).toBe(64);
   });
 });
 

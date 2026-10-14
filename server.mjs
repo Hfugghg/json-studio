@@ -6,7 +6,12 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const app = express();
-const PORT = 3001;
+const DEFAULT_PORT = 3001;
+const configuredPort = Number.parseInt(process.env.JSON_STUDIO_PORT || String(DEFAULT_PORT), 10);
+const PORT = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535
+  ? configuredPort
+  : DEFAULT_PORT;
+const HOST = process.env.JSON_STUDIO_HOST || '127.0.0.1';
 const JSON_DIR = path.join(__dirname, 'json-files');
 
 // 确保文件夹存在
@@ -22,6 +27,41 @@ app.use((req, res, next) => {
   next();
 });
 
+// 轻量级 API 频率限制：在解析请求体之前执行，减少重复大请求消耗的资源。
+export function createRateLimiter({ windowMs = 60_000, max = 180, now = Date.now } = {}) {
+  const clients = new Map();
+
+  return (req, res, next) => {
+    const current = now();
+    const key = req.ip || req.socket?.remoteAddress || 'unknown';
+    let bucket = clients.get(key);
+    if (!bucket || current - bucket.startedAt >= windowMs) {
+      bucket = { startedAt: current, count: 0 };
+    }
+
+    bucket.count += 1;
+    clients.set(key, bucket);
+
+    // 清理过期条目，避免在长期运行的服务中无限累积客户端地址。
+    if (clients.size > 1000) {
+      for (const [client, entry] of clients) {
+        if (current - entry.startedAt >= windowMs) clients.delete(client);
+      }
+    }
+
+    const remaining = Math.max(0, max - bucket.count);
+    res.set('RateLimit-Limit', String(max));
+    res.set('RateLimit-Remaining', String(remaining));
+    if (bucket.count > max) {
+      const retryAfter = Math.max(1, Math.ceil((windowMs - (current - bucket.startedAt)) / 1000));
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ success: false, error: '请求过于频繁，请稍后重试' });
+    }
+    return next();
+  };
+}
+
+app.use('/api/files', createRateLimiter());
 app.use(express.json({ limit: '5mb' }));
 
 // ===== 全局错误守护 =====
@@ -39,12 +79,17 @@ process.on('unhandledRejection', (reason) => {
 
 // 文件名安全检查
 function isSafeFileName(name) {
-  return !name.includes('/') && !name.includes('\\') && !name.includes('..');
+  return typeof name === 'string'
+    && name.endsWith('.json')
+    && name !== '.json'
+    && !name.includes('/')
+    && !name.includes('\\')
+    && !name.includes('..')
+    && !/[\u0000-\u001f\u007f]/.test(name);
 }
-
 // 内容字段校验中间件（用于保存/新建）
 function validateContent(req, res, next) {
-  if (typeof req.body.content !== 'string') {
+  if (!req.body || typeof req.body.content !== 'string') {
     return res.status(400).json({ success: false, error: '内容格式错误' });
   }
   if (req.body.content.length > 5 * 1024 * 1024) {
@@ -141,10 +186,11 @@ app.post('/api/files', validateContent, async (req, res) => {
       return res.status(400).json({ success: false, error: '缺少文件名' });
     }
     name = name.trim();
-    if (!isSafeFileName(name)) {
+    // 允许用户按 UI 约定输入不带后缀的名称；校验补全后的最终文件名。
+    const fileName = name.endsWith('.json') ? name : name + '.json';
+    if (!isSafeFileName(fileName)) {
       return res.status(403).json({ success: false, error: '非法文件名' });
     }
-    const fileName = name.endsWith('.json') ? name : name + '.json';
     const filePath = path.join(JSON_DIR, fileName);
     // 排他创建：wx 标志确保文件不存在时才写入，避免 TOCTOU 竞态
     const handle = await fs.promises.open(filePath, 'wx');
@@ -193,8 +239,16 @@ app.use((req, res) => {
 
 // 全局错误处理中间件
 app.use((err, req, res, next) => {
+  // JSON 解析和 body 大小错误属于客户端输入问题，不应被误报为服务器故障。
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, error: '请求 JSON 格式错误' });
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ success: false, error: '请求内容超过限制' });
+  }
+
   console.error('[服务器错误]', err);
-  res.status(500).json({ success: false, error: '操作失败' });
+  return res.status(500).json({ success: false, error: '操作失败' });
 });
 
 
@@ -205,8 +259,8 @@ const isMainModule = (import.meta.url && process.argv[1])
 
 let server;
 if (isMainModule) {
-  server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`JSON 文件服务已启动: http://localhost:${PORT}`);
+  server = app.listen(PORT, HOST, () => {
+    console.log(`JSON 文件服务已启动: http://${HOST}:${PORT}`);
     console.log(`文件夹: ${JSON_DIR}`);
   });
 

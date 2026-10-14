@@ -37,6 +37,27 @@ describe('storage.js - normalizeName 行为（通过 createFile 后缀）', () =
   });
 });
 
+describe('storage.js - backend cache refresh', () => {
+  it('rechecks the backend after the cache expires', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, status: 'running' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { detectMode } = await import('../storage.js');
+      await expect(detectMode()).resolves.toBe('local');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(15_001);
+      await expect(detectMode()).resolves.toBe('server');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('backend unavailable'))));
+    }
+  });
+});
+
 describe('storage.js - byteSize（通过 listFiles 返回的 size）', () => {
   it('ASCII 内容的字节数等于字符长度', async () => {
     const { createFile, listFiles } = await import('../storage.js');
@@ -146,14 +167,16 @@ describe('storage.js - deleteFile（localStorage 模式）', () => {
 
 describe('storage.js - writeStore 错误处理', () => {
   it('localStorage 写入失败时应抛出有意义的错误', async () => {
-    // 模拟 localStorage.setItem 抛出异常
-    const originalSetItem = localStorage.setItem;
-    localStorage.setItem = () => {
+    // Storage 方法来自原型；直接给实例赋值在部分 jsdom 版本中不会覆盖实际调用。
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceeded');
-    };
-    const { createFile } = await import('../storage.js');
-    await expect(createFile('fail.json')).rejects.toThrow('浏览器存储写入失败');
-    localStorage.setItem = originalSetItem;
+    });
+    try {
+      const { createFile } = await import('../storage.js');
+      await expect(createFile('fail.json')).rejects.toThrow('浏览器存储写入失败');
+    } finally {
+      setItemSpy.mockRestore();
+    }
   });
 });
 
@@ -269,12 +292,14 @@ describe('storage.js - 编辑草稿', () => {
   });
 
   it('写入失败（超出配额）时返回 false', async () => {
-    const originalSetItem = localStorage.setItem;
-    localStorage.setItem = () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceeded');
-    };
-    const { saveDraft } = await import('../storage.js');
-    expect(saveDraft({ code: '{}', currentFile: null, view: 'split' })).toBe(false);
-    localStorage.setItem = originalSetItem;
+    });
+    try {
+      const { saveDraft } = await import('../storage.js');
+      expect(saveDraft({ code: '{}', currentFile: null, view: 'split' })).toBe(false);
+    } finally {
+      setItemSpy.mockRestore();
+    }
   });
 });
