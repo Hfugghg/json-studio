@@ -180,6 +180,17 @@ describe('DELETE /api/files/:name', () => {
   });
 });
 
+describe('请求错误处理', () => {
+  it('无效的 JSON 请求体返回 400', async () => {
+    const res = await request(app)
+      .post('/api/files/bad.json')
+      .set('Content-Type', 'application/json')
+      .send('{"content":');
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ success: false, error: '请求 JSON 格式错误' });
+  });
+});
+
 describe('未知路由', () => {
   it('未定义的 API 返回 404', async () => {
     const res = await request(app).get('/api/unknown');
