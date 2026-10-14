@@ -146,14 +146,16 @@ describe('storage.js - deleteFile（localStorage 模式）', () => {
 
 describe('storage.js - writeStore 错误处理', () => {
   it('localStorage 写入失败时应抛出有意义的错误', async () => {
-    // 模拟 localStorage.setItem 抛出异常
-    const originalSetItem = localStorage.setItem;
-    localStorage.setItem = () => {
+    // Storage 方法来自原型；直接给实例赋值在部分 jsdom 版本中不会覆盖实际调用。
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceeded');
-    };
-    const { createFile } = await import('../storage.js');
-    await expect(createFile('fail.json')).rejects.toThrow('浏览器存储写入失败');
-    localStorage.setItem = originalSetItem;
+    });
+    try {
+      const { createFile } = await import('../storage.js');
+      await expect(createFile('fail.json')).rejects.toThrow('浏览器存储写入失败');
+    } finally {
+      setItemSpy.mockRestore();
+    }
   });
 });
 
@@ -269,12 +271,14 @@ describe('storage.js - 编辑草稿', () => {
   });
 
   it('写入失败（超出配额）时返回 false', async () => {
-    const originalSetItem = localStorage.setItem;
-    localStorage.setItem = () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceeded');
-    };
-    const { saveDraft } = await import('../storage.js');
-    expect(saveDraft({ code: '{}', currentFile: null, view: 'split' })).toBe(false);
-    localStorage.setItem = originalSetItem;
+    });
+    try {
+      const { saveDraft } = await import('../storage.js');
+      expect(saveDraft({ code: '{}', currentFile: null, view: 'split' })).toBe(false);
+    } finally {
+      setItemSpy.mockRestore();
+    }
   });
 });
