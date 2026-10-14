@@ -24,6 +24,42 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '5mb' }));
 
+// 轻量级 API 频率限制：保护本地文件服务免受意外循环请求与简单滥用。
+export function createRateLimiter({ windowMs = 60_000, max = 180, now = Date.now } = {}) {
+  const clients = new Map();
+
+  return (req, res, next) => {
+    const current = now();
+    const key = req.ip || req.socket?.remoteAddress || 'unknown';
+    let bucket = clients.get(key);
+    if (!bucket || current - bucket.startedAt >= windowMs) {
+      bucket = { startedAt: current, count: 0 };
+    }
+
+    bucket.count += 1;
+    clients.set(key, bucket);
+
+    // 清理过期条目，避免在长期运行的服务中无限累积客户端地址。
+    if (clients.size > 1000) {
+      for (const [client, entry] of clients) {
+        if (current - entry.startedAt >= windowMs) clients.delete(client);
+      }
+    }
+
+    const remaining = Math.max(0, max - bucket.count);
+    res.set('RateLimit-Limit', String(max));
+    res.set('RateLimit-Remaining', String(remaining));
+    if (bucket.count > max) {
+      const retryAfter = Math.max(1, Math.ceil((windowMs - (current - bucket.startedAt)) / 1000));
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ success: false, error: '请求过于频繁，请稍后重试' });
+    }
+    return next();
+  };
+}
+
+app.use('/api/files', createRateLimiter());
+
 // ===== 全局错误守护 =====
 process.on('uncaughtException', (err) => {
   console.error('[未捕获异常]', err.message);
