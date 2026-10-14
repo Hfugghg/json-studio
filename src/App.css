@@ -1030,7 +1030,15 @@
 
 .inline-input.key-input {
   color: var(--key);
-  width: 120px;
+  width: auto;
+}
+
+/* 输入框按 HTML size 属性跟随完整文本长度；仅在小屏限制其占屏宽度 */
+@media (max-width: 900px) {
+  .inline-input {
+    box-sizing: border-box;
+    max-width: min(70vw, 420px);
+  }
 }
 
 .inline-select {
