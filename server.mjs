@@ -39,9 +39,14 @@ process.on('unhandledRejection', (reason) => {
 
 // 文件名安全检查
 function isSafeFileName(name) {
-  return !name.includes('/') && !name.includes('\\') && !name.includes('..');
+  return typeof name === 'string'
+    && name.endsWith('.json')
+    && name !== '.json'
+    && !name.includes('/')
+    && !name.includes('\\')
+    && !name.includes('..')
+    && !/[\u0000-\u001f\u007f]/.test(name);
 }
-
 // 内容字段校验中间件（用于保存/新建）
 function validateContent(req, res, next) {
   if (typeof req.body.content !== 'string') {
@@ -145,6 +150,9 @@ app.post('/api/files', validateContent, async (req, res) => {
       return res.status(403).json({ success: false, error: '非法文件名' });
     }
     const fileName = name.endsWith('.json') ? name : name + '.json';
+    if (!isSafeFileName(fileName)) {
+      return res.status(403).json({ success: false, error: '非法文件名' });
+    }
     const filePath = path.join(JSON_DIR, fileName);
     // 排他创建：wx 标志确保文件不存在时才写入，避免 TOCTOU 竞态
     const handle = await fs.promises.open(filePath, 'wx');
