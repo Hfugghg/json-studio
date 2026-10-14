@@ -6,6 +6,7 @@ import {
   loadDraft, saveDraft,
 } from './storage';
 import { diffLines } from './diff';
+import { buildJsonPathLineMap, findClosestPathForLine } from './scrollSync';
 import './App.css';
 
 // 草稿落盘的防抖时长：停顿约半秒就把当前内容写进 localStorage，
@@ -67,6 +68,8 @@ function App() {
 
   // 缓存代码行数组，避免每次渲染重复 split（H11）
   const codeLines = useMemo(() => code.split('\n'), [code]);
+  // 用 JSON 路径而非「第几个树节点」关联源代码行，闭合括号、空容器和过滤节点不会再造成偏移。
+  const pathLineMap = useMemo(() => buildJsonPathLineMap(code), [code]);
 
   // 持久化隐藏键到 localStorage
   useEffect(() => {
@@ -870,27 +873,21 @@ function App() {
     return Math.floor(textarea.scrollTop / getLineHeight()) + 1;
   }, [getLineHeight]);
 
-  // 滚动树形视图到指定行对应的节点
+  // 滚动树形视图到源代码当前行对应的 JSON 路径。
   const scrollTreeToLine = useCallback((line) => {
     if (!treeViewportRef.current) return;
+    const serializedPath = findClosestPathForLine(pathLineMap, line);
+    if (serializedPath === null) return;
     const treeViewport = treeViewportRef.current;
-    const nodes = treeViewport.querySelectorAll('[data-line]');
-    let targetNode = null;
-    for (const node of nodes) {
-      const nodeLine = parseInt(node.dataset.line, 10);
-      if (nodeLine <= line) {
-        targetNode = node;
-      } else {
-        break;
-      }
-    }
-    if (targetNode) {
-      const treeRect = treeViewport.getBoundingClientRect();
-      const nodeRect = targetNode.getBoundingClientRect();
-      const offset = nodeRect.top - treeRect.top + treeViewport.scrollTop - 8;
-      treeViewport.scrollTop = Math.max(0, offset);
-    }
-  }, []);
+    const targetNode = Array.from(treeViewport.querySelectorAll('[data-path]'))
+      .find((node) => node.dataset.path === serializedPath);
+    if (!targetNode) return;
+
+    const treeRect = treeViewport.getBoundingClientRect();
+    const nodeRect = targetNode.getBoundingClientRect();
+    const offset = nodeRect.top - treeRect.top + treeViewport.scrollTop - 8;
+    treeViewport.scrollTop = Math.max(0, offset);
+  }, [pathLineMap]);
 
   const handleEditorScroll = useCallback((e) => {
     // 行号同步
@@ -910,15 +907,15 @@ function App() {
     const textarea = textareaRef.current;
     if (textarea && !isScrollingRef.current) {
       isScrollingRef.current = true;
-      // 获取树形视图中第一个可见节点对应的行号
+      // 通过可见节点的 JSON 路径反查源代码行，不再把树节点序号误当作文本行号。
       const treeViewport = e.target;
-      const nodes = treeViewport.querySelectorAll('[data-line]');
+      const nodes = treeViewport.querySelectorAll('[data-path]');
       const treeRect = treeViewport.getBoundingClientRect();
       let firstVisibleLine = 1;
       for (const node of nodes) {
         const nodeRect = node.getBoundingClientRect();
-        if (nodeRect.top > treeRect.top) {
-          firstVisibleLine = parseInt(node.dataset.line, 10) || 1;
+        if (nodeRect.bottom > treeRect.top) {
+          firstVisibleLine = pathLineMap.get(node.dataset.path) || 1;
           break;
         }
       }
@@ -929,7 +926,7 @@ function App() {
       }
       requestAnimationFrame(() => { isScrollingRef.current = false; });
     }
-  }, [getLineHeight]);
+  }, [getLineHeight, pathLineMap]);
 
   // ========== 代码编辑 ==========
   const handleCodeChange = useCallback((e) => {
